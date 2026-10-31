@@ -8,8 +8,8 @@ Garanties apportées par le code (pas seulement par la consigne) :
   - un CAPTCHA n'est jamais résolu : l'offre passe en « Bloquée » avec le motif.
 
 Comptes : l'agent crée le compte candidat avec l'adresse du candidat et un mot de passe généré
-(outil identifiants_site, stocké dans secrets/comptes.json et exportable vers le gestionnaire
-de mots de passe de Google), et lit les codes de vérification dans Gmail (lecture seule).
+(outil identifiants_site, stocké dans secrets/comptes.json, sauvegardé aussitôt dans le coffre
+chiffré), et lit les codes de vérification dans Gmail (lecture seule).
 
 Lancement :
     python -m agents.postuleur --dry-run --ids OF-0a90fd30    # remplit tout, n'envoie rien
@@ -19,7 +19,6 @@ Lancement :
 
 import argparse
 import asyncio
-import csv
 import fcntl
 import json
 import os
@@ -40,7 +39,6 @@ from outils.lancement import RACINE, lancer_agent
 
 DOSSIERS = RACINE / "dossiers"
 COMPTES = RACINE / "secrets" / "comptes.json"
-EXPORT_MDP = RACINE / "secrets" / "import_google_mots_de_passe.csv"
 # Plusieurs postuleurs en parallèle (WORKER=« i/n ») : un profil de navigateur chacun (Chromium le verrouille).
 _WORKER = int(os.getenv("WORKER", "0/1").split("/")[0])
 PROFIL_NAVIGATEUR = RACINE / "navigateur" / ("profil" if _WORKER == 0 else f"profil_{_WORKER}")
@@ -205,21 +203,24 @@ def _identifiants_enregistres(site: str, mot_de_passe_connu: str | None) -> dict
                          "cree_le": datetime.now().isoformat(timespec="seconds")}
         COMPTES.write_text(json.dumps(comptes, indent=2, ensure_ascii=False))
         COMPTES.chmod(0o600)
-        # Fichier à importer dans passwords.google.com (Paramètres → Importer), puis à supprimer.
-        with EXPORT_MDP.open("w", newline="", encoding="utf-8") as f:
-            ecrivain = csv.writer(f)
-            ecrivain.writerow(["name", "url", "username", "password"])
-            for nom, c in comptes.items():
-                ecrivain.writerow([nom, f"https://{nom}", c["email"], c["mot_de_passe"]])
-        EXPORT_MDP.chmod(0o600)
         _copier_dans_env(site, comptes[site]["mot_de_passe"])
+        _sauvegarder_le_compte(site)
     return {"site": site, **comptes[site]}
+
+
+def _sauvegarder_le_compte(site: str) -> None:
+    """Un compte créé ne doit jamais être perdu : coffre envoyé aussitôt sur le Drive."""
+    from outils import coffre
+    try:
+        coffre.sauvegarder_coffre()
+    except Exception as erreur:   # le compte reste dans secrets/ et repartira avec la sauvegarde de fin
+        print(f"ATTENTION : compte {site} créé, mais coffre non sauvegardé pour l'instant ({erreur.__class__.__name__}).")
 
 
 def _copier_dans_env(site: str, mot_de_passe: str) -> None:
     """Recopie le mot de passe dans .env (MDP_<SITE>) pour que le candidat les retrouve tous au même endroit."""
     env, cle = RACINE / ".env", variable_env(site)
-    lignes = [l for l in env.read_text(encoding="utf-8").splitlines() if not l.startswith(f"{cle}=")]
+    lignes = [l for l in env.read_text(encoding="utf-8").splitlines() if not l.startswith(f"{cle}=")] if env.exists() else []
     env.write_text("\n".join(lignes + [f"{cle}={mot_de_passe}"]) + "\n", encoding="utf-8")
     os.environ[cle] = mot_de_passe
 

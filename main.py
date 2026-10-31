@@ -254,7 +254,7 @@ async def _journee(sheet, journal: dict, args) -> None:
         fichier.write_text(texte, encoding="utf-8")
         print("\n" + texte + f"\n(Résumé enregistré dans {fichier.relative_to(RACINE)})")
 
-    try:   # profil, modèles et projets copiés sur le Drive (aucun secret), pour survivre à la machine
+    try:   # coffre et profil chiffrés sur le Drive, pour survivre à la machine
         from outils.sauvegarde import sauvegarder
         sauvegarder()
     except Exception as erreur:

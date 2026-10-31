@@ -1,7 +1,8 @@
 # Dépendances du projet (versions figées pour des lancements reproductibles).
 claude-agent-sdk==0.2.174      # boucle des agents, outils, sous-agents
 python-dotenv==1.2.4           # chargement de .env (le SDK ne le lit pas tout seul)
-gspread==6.2.1                 # Google Sheet via compte de service
+gspread==6.2.1                 # Google Sheet via l'autorisation OAuth de l'utilisateur
+cryptography==50.0.2           # coffre à secrets (Fernet)
 google-auth-oauthlib==1.5.0    # accès OAuth du candidat : Drive (fichiers du pipeline) et Gmail (lecture seule)
 requests==2.34.2               # lecture des pages d'offres (robots.txt respecté)
 pytest==9.1.1                  # tests

@@ -37,9 +37,14 @@ def _masquer(texte: str) -> str:
         for compte in json.loads(COMPTES.read_text()).values():
             texte = texte.replace(compte["mot_de_passe"], "***")
     for nom, valeur in os.environ.items():   # mots de passe donnés par le candidat dans .env
-        if nom.startswith("MDP_") and valeur:
+        if (nom.startswith("MDP_") or nom in ("COFFRE_CLE", "GOOGLE_CLIENT_JSON")) and valeur:
             texte = texte.replace(valeur, "***")
     return texte
+
+
+def _entree_sans_secret(entree: dict) -> str:
+    """Paramètres d'un outil pour le journal : un mot de passe tout neuf n'est pas encore connu de _masquer."""
+    return str({k: "***" if "mot_de_passe" in k else v for k, v in entree.items()})
 
 
 async def lancer_agent(
@@ -72,7 +77,7 @@ async def lancer_agent(
                     if isinstance(bloc, TextBlock):
                         print(_masquer(f"[{prefixe}] {bloc.text}"))
                     elif isinstance(bloc, ToolUseBlock):
-                        print(_masquer(f"[{prefixe}] → outil {bloc.name} {str(bloc.input)[:200]}"))
+                        print(_masquer(f"[{prefixe}] → outil {bloc.name} {_entree_sans_secret(bloc.input)[:200]}"))
             elif isinstance(message, ResultMessage):
                 resultat = message
 
