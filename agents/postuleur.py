@@ -155,6 +155,7 @@ Recettes qui fonctionnent, par portail :
 - Thales (Phenom/Workday) : la page peut se figer après « Suivant » ; recharge une fois, sinon bloque.
 - Workday (Chanel, ArianeGroup, Banque de France, Thales…) : un compte par entreprise
   (identifiants_site("myworkdayjobs.com <entreprise>")).
+{"PERSONNE ne regarde ce navigateur : une connexion impossible, un code par SMS ou une vérification humaine se traite comme un CAPTCHA, avec marquer_bloquee(id, « Action humaine requise : <détail> »)." if en_cloud() else ""}
 Termine par une ligne « RÉSULTAT: ENVOYÉE », « RÉSULTAT: PRÊTE (test) » ou « RÉSULTAT: BLOQUÉE – <motif> »."""
 
 
@@ -303,8 +304,13 @@ def controle_prealable(sheet, id_offre: str, dry_run: bool) -> tuple[str | None,
     if not CANDIDATURE_SIMPLIFIEE and any(p in url for p in PLATEFORMES):
         return bloquer("Bloquée : pas de lien vers le site de l'entreprise",
                        "Postuleur : seule une plateforme (JobTeaser/LinkedIn/WTTJ) est connue ; site de l'entreprise à trouver")
+    if len(list((DOSSIERS / id_offre).glob("*.pdf"))) < 2:   # jamais de candidature sans CV ni lettre
+        return bloquer("Bloquée : CV ou lettre absent", "Postuleur : CV ou lettre absent de cette machine, dossier à refaire")
     bloques = sites_captcha(toutes)
     if not NAVIGATEUR_VISIBLE and (cle_site(url) in bloques or urlsplit(url).netloc.lower() in bloques):
+        if en_cloud():   # pas de mode assisté dans le cloud : à finir à la main
+            return bloquer("Bloquée : action humaine requise", (
+                f"Action humaine requise : CAPTCHA ou compte refusé déjà vu sur ce site → {url}"))
         # pas de changement de statut : l'offre reste « Validée » pour le mode assisté, sans aller-retour
         return "Reportée : CAPTCHA ou compte refusé sur ce site, à faire en mode assisté", o
     if "linkedin.com" in url and _envois_linkedin_du_jour() >= QUOTA_LINKEDIN_JOUR:
@@ -417,11 +423,17 @@ def serveur_postuleur(sheet, offre: dict, garde: Garde):
         garde.issue = f"Bloquée : {args['motif'][:150]}"
         if garde.dry_run:
             return texte(f"Mode test : statut inchangé (motif noté : {args['motif']}).")
-        sheet.changer_statut(id_offre, "Bloquée", motif_blocage=f"Postuleur : {args['motif']}"[:500])
+        sheet.changer_statut(id_offre, "Bloquée", motif_blocage=f"Postuleur : {args['motif'][:380]} → {_lien_candidature(offre)}"[:500])
         return texte("Statut « Bloquée » enregistré.")
 
     @tool("demander_aide", "Mode assisté : demande au candidat d'agir dans le navigateur visible.", {"message": str})
     async def demander_aide(args):
+        if en_cloud():   # personne devant l'écran : à finir à la main, avec le lien
+            motif = f"Action humaine requise : {args['message'][:300]} → {_lien_candidature(offre)}"
+            garde.issue = "Bloquée : action humaine requise"
+            if not garde.dry_run:
+                sheet.changer_statut(id_offre, "Bloquée", motif_blocage=motif[:500])
+            return texte("Personne ne peut t'aider ici : offre bloquée. Ne fais rien d'autre, termine.")
         print(f"\a\n{'=' * 70}\n>>> À TOI, {prenom().upper()} ({offre['entreprise']}) : {args['message']}\n{'=' * 70}\n",
               flush=True)
         for commande in (["notify-send", "Candidatures", args["message"]],
@@ -498,7 +510,7 @@ def _bloquer_si_plafond(sheet, offre: dict, garde: Garde, cause: str) -> None:
     if plafond and garde.issue.startswith("Inachevée") and not garde.dry_run:
         sheet.changer_statut(offre["id"], "Bloquée", motif_blocage=(
             f"Postuleur : arrêté par son plafond ({cause[:80]}) avant l'envoi : formulaire long ou cassé, "
-            "à faire en mode assisté"))
+            f"à finir à la main → {_lien_candidature(offre)}"))
         garde.issue = "Bloquée : plafond atteint avant l'envoi"
 
 

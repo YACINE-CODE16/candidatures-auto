@@ -243,7 +243,25 @@ def test_nettoyage_garde_les_candidatures_et_supprime_les_vieilles_offres(tmp_pa
     assert sheet.ajouter_offre({"entreprise": "B", "intitule": "Stage 2", "url": "https://b.fr/2"}) is None
 
 
-def test_verrou_un_seul_pipeline_a_la_fois():
+def test_deux_lancements_en_meme_temps_un_seul_garde_le_verrou(monkeypatch):
+    import outils.sheet as s
+
+    class Onglet:
+        """Un autre pipeline écrit juste après nous : il est le dernier, c'est lui qui garde le verrou."""
+        valeur = ""
+
+        def acell(self, _a1):
+            return type("C", (), {"value": self.valeur})()
+
+        def update_acell(self, _a1, v):
+            self.valeur = "cloud:2 | 2999-01-01T00:00:00+00:00"
+    monkeypatch.setattr(s, "_onglet_verrou", lambda sheet: Onglet())
+    monkeypatch.setattr(s, "ATTENTE_VERROU_S", 0)
+    assert s.prendre_verrou(None, "mac:1").startswith("cloud:2")
+
+
+def test_verrou_un_seul_pipeline_a_la_fois(monkeypatch):
+    monkeypatch.setattr("outils.sheet.ATTENTE_VERROU_S", 0)
     from outils.sheet import prendre_verrou, rendre_verrou
 
     class Onglet:

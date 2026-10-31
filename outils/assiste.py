@@ -25,6 +25,9 @@ async def main() -> None:
     parser.add_argument("--parallele", action="store_true",
                         help="pendant que main.py tourne : navigateur à part, une offre à la fois, sans verrou")
     args = parser.parse_args()
+    from outils.config import en_cloud
+    if en_cloud():
+        raise SystemExit("Le mode assisté demande un écran : dans le cloud, finis à la main les offres « Bloquée » du Sheet.")
     os.environ["NAVIGATEUR_VISIBLE"] = "1"   # avant tout import de agents.postuleur
     if args.parallele:
         os.environ["WORKER"] = "1/2"         # profil de navigateur séparé de celui de main.py

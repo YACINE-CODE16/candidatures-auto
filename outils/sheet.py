@@ -389,6 +389,7 @@ def ouvrir_pipeline() -> PipelineSheet:
 
 ONGLET_VERROU = "Verrou"
 VERROU_PERIME_MIN = 90   # un verrou non rafraîchi depuis 90 min vient d'un pipeline arrêté brutalement
+ATTENTE_VERROU_S = 3     # lire puis écrire n'est pas atomique : deux pipelines lancés ensemble se départagent ainsi
 
 
 def _onglet_verrou(sheet):
@@ -414,7 +415,11 @@ def prendre_verrou(sheet, qui: str) -> str | None:
                 and not _processus_mort(actuel.split(" | ")[0]):
             return actuel
     onglet.update_acell("A1", f"{qui} | {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
-    return None
+    if actuel.startswith(qui + " | "):   # simple rafraîchissement du verrou déjà tenu
+        return None
+    time.sleep(ATTENTE_VERROU_S)
+    relu = onglet.acell("A1").value or ""
+    return None if relu.startswith(qui + " | ") else relu   # le dernier à écrire garde le verrou
 
 
 def _processus_mort(proprietaire: str) -> bool:

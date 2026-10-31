@@ -28,6 +28,13 @@ RACINE = Path(__file__).resolve().parent.parent
 FICHIER_COUTS = RACINE / "logs" / "couts.csv"
 COMPTES = RACINE / "secrets" / "comptes.json"
 DUREE_MAX_S = 15 * 60   # le plus long des agents (un dossier) dure ~4 min ; au-delà, il est figé
+
+
+class ArretDemande(BaseException):
+    """Plus aucun agent à lancer (temps écoulé, verrou perdu). BaseException : les « except Exception » par offre
+    ne doivent pas la prendre pour l'échec d'une offre, et le pipeline s'arrête proprement."""
+
+
 AVANT_AGENT: list[Callable[[], None]] = []   # appelés avant chaque agent (ex. rafraîchir le verrou du pipeline)
 
 
@@ -66,7 +73,7 @@ async def lancer_agent(
         rappel()
 
     resultat: ResultMessage | None = None
-    async with asyncio.timeout(DUREE_MAX_S):   # un agent figé (page qui n'arrive jamais) ne bloque plus le pipeline
+    async with asyncio.timeout(int(os.getenv("DUREE_AGENT_MAX_S", DUREE_MAX_S))):   # un agent figé (page qui n'arrive jamais) ne bloque plus le pipeline
         async for message in query(prompt=prompt, options=options):
             if observateur:
                 observateur(message)

@@ -21,6 +21,8 @@ import asyncio
 import json
 import os
 import socket
+import sys
+import time
 import traceback
 from collections import Counter
 from datetime import date
@@ -28,12 +30,13 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
-from outils.config import sources_connectees
-from outils.lancement import RACINE
+from outils.config import en_cloud, sources_connectees
+from outils.lancement import RACINE, ArretDemande
 from outils.plafonds import autorises, compter, plafond
 from outils.sheet import priorite
 
 DOSSIERS = RACINE / "dossiers"
+A_SUIVRE = 75       # code de sortie quand il reste du travail : lancer_cloud.sh affiche « A SUIVRE »
 AGE_MAX_JOURS = 4   # au-delà, une offre jamais postulée est supprimée au début du cycle
 
 
@@ -221,11 +224,35 @@ async def main() -> None:
     if autre := prendre_verrou(sheet, qui):   # jamais deux pipelines (Mac et cloud) sur le même Sheet
         print(f"Un autre pipeline tourne déjà ({autre}) : arrêt. Onglet « Verrou » du Sheet.")
         return
-    AVANT_AGENT.append(lambda: prendre_verrou(sheet, qui))
+
+    def garder_le_verrou():
+        if autre := prendre_verrou(sheet, qui):
+            raise ArretDemande(f"verrou pris par un autre pipeline ({autre})")
+
+    debut, duree_max = time.monotonic(), int(os.getenv("DUREE_MAX_MIN", "0")) * 60
+
+    def surveiller_la_duree():
+        if duree_max and time.monotonic() - debut > duree_max:
+            raise ArretDemande("durée maximale de cette tranche atteinte")
+
+    AVANT_AGENT.extend([garder_le_verrou, surveiller_la_duree])
+    if en_cloud():
+        AVANT_AGENT.append(_sauvegarde_en_route)
     try:
         await _journee(sheet, journal, args)
     finally:
         rendre_verrou(sheet, qui)
+    if journal.get("a_suivre"):
+        sys.exit(A_SUIVRE)
+
+
+def _sauvegarde_en_route() -> None:
+    """Le cloud peut couper une commande : le travail déjà fait repart à chaque nouvel agent."""
+    from outils.sauvegarde import sauvegarder_archive
+    try:
+        sauvegarder_archive()
+    except Exception as erreur:
+        print(f"Sauvegarde en route impossible : {erreur.__class__.__name__}")
 
 
 async def _journee(sheet, journal: dict, args) -> None:
@@ -238,6 +265,9 @@ async def _journee(sheet, journal: dict, args) -> None:
             print(f"\n===== {nom.upper()} =====")
             try:
                 await fonction(sheet, args, journal)
+            except ArretDemande as arret:
+                print(f"Arrêt propre : {arret}.")
+                journal["a_suivre"] = True
             except Exception as erreur:   # une étape en échec n'empêche pas les suivantes
                 journal["erreurs"].append(f"{nom} : {erreur.__class__.__name__} : {erreur}")
                 traceback.print_exc()
@@ -251,19 +281,24 @@ async def _journee(sheet, journal: dict, args) -> None:
             print(f"Nettoyage : {len(supprimees)} offre(s) de plus de {AGE_MAX_JOURS} jours supprimée(s) du Sheet.")
         for nom, fonction in (("chasseur", etape_chasseur), ("lecteur", etape_lecteur),
                               ("dossier", etape_dossier), ("postuleur", etape_postuleur)):
-            await lancer(nom, fonction)
+            if not journal.get("a_suivre"):
+                await lancer(nom, fonction)
+        if journal.get("a_suivre"):
+            break
         apres = (len(journal.get("dossiers", [])), len(journal.get("envois", [])),
                  sum(journal.get("lecteur", {}).values()), sum(journal.get("chasseur", {}).values()))   # offre écartée ou bloquée = progrès aussi
         if apres == avant:
             print("Plus rien à traiter : arrêt des cycles.")
             break
-    await lancer("suivi", etape_suivi)
+    if not journal.get("a_suivre"):
+        await lancer("suivi", etape_suivi)
 
     if "resume" in etapes:
         texte = resume(sheet, args, journal)
         fichier = RACINE / "logs" / f"resume_{date.today().isoformat()}.md"
         fichier.parent.mkdir(exist_ok=True)
-        fichier.write_text(texte, encoding="utf-8")
+        with fichier.open("a", encoding="utf-8") as f:   # plusieurs lancements par jour : tout reste lisible
+            f.write(texte + "\n")
         print("\n" + texte + f"\n(Résumé enregistré dans {fichier.relative_to(RACINE)})")
 
     try:   # coffre et profil chiffrés sur le Drive, pour survivre à la machine

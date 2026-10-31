@@ -28,7 +28,7 @@ SECRETS = RACINE / "secrets"
 ENV = RACINE / ".env"
 API = "https://www.googleapis.com/drive/v3/files"
 API_ENVOI = "https://www.googleapis.com/upload/drive/v3/files"
-JAMAIS_DANS_LE_COFFRE = {".oauth_en_attente.json", "comptes.verrou"}
+JAMAIS_DANS_LE_COFFRE = {".oauth_en_attente.json", "comptes.verrou", ".restaure"}
 VARIABLES_DE_LANCEMENT = ("COFFRE_CLE=", "GOOGLE_CLIENT_JSON=")   # déjà dans les réglages du cloud
 
 
