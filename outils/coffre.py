@@ -185,7 +185,13 @@ def restaurer_coffre() -> list[str]:
     contenu = recuperer(session, NOM_COFFRE)
     if contenu is None:
         raise CoffreErreur(f"Aucun {NOM_COFFRE} sur le Drive : l'installation n'est pas allée jusqu'à l'étape du coffre.")
-    return deballer(dechiffrer(contenu, lire_cle()[0]))
+    jeton = SECRETS / "token_google.json"
+    # Un jeton déjà sur la machine vient d'une nouvelle autorisation : celui du coffre, plus ancien, ne doit pas l'écraser.
+    plus_recent = jeton.read_bytes() if jeton.exists() else None
+    noms = deballer(dechiffrer(contenu, lire_cle()[0]))
+    if plus_recent:
+        jeton.write_bytes(plus_recent)
+    return noms
 
 
 if __name__ == "__main__":

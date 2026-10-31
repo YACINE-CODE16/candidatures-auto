@@ -26,8 +26,11 @@ installer() {
     $sudo apt-get update -qq && $sudo apt-get install -y -qq libreoffice-writer poppler-utils fonts-liberation \
       fonts-crosextra-carlito fonts-crosextra-caladea fonts-ebgaramond >/dev/null
   fi
-  [ -n "$(chromium)" ] || npx -y playwright install --with-deps chromium >/dev/null 2>&1 \
-    || npx -y playwright install chromium >/dev/null 2>&1
+  if [ -z "$(chromium)" ]; then
+    local trace; trace=$(mktemp)
+    npx -y playwright install --with-deps chromium >"$trace" 2>&1 || npx -y playwright install chromium >"$trace" 2>&1 || tail -5 "$trace"
+    rm -f "$trace"
+  fi
   local manque=""
   for outil in soffice pdfinfo pdftotext npx; do command -v "$outil" >/dev/null || manque="$manque $outil"; done
   [ -n "$(chromium)" ] || manque="$manque chromium"

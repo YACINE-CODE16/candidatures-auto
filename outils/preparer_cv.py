@@ -81,7 +81,8 @@ def brouillon_verite(lignes: list[str]) -> str:
     nom = lignes[0] if lignes else "<Prénom NOM>"
     contact, contenu, courante = [f"- Nom : {nom}"], {}, None
     for ligne in lignes[1:]:
-        if titre := _section(ligne):
+        titre = _section(ligne)
+        if titre and titre != courante:   # « Projet personnel » sous « PROJETS » est une ligne de contenu, pas un titre
             courante = titre
             continue
         if courante is None and re.search(r"@|\+?\d[\d .-]{7,}|linkedin|github|https?://", ligne, re.I):

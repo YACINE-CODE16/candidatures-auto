@@ -177,7 +177,7 @@ def produire_lettre(dossier: Path, entreprise: str, categorie: str) -> str:
     corps += [para(lettre["politesse"], justifie=True, apres=480)]
     corps += [para(moi["nom"], retrait_cm=10)]
 
-    section = re.search(r"<w:sectPr.*?</w:sectPr>", xml, re.S).group(0)
+    section = m[0] if (m := re.search(r"<w:sectPr\b[^>]*/>|<w:sectPr.*?</w:sectPr>", xml, re.S)) else ""   # absente ou vide selon l'éditeur
     section = re.sub(r"<w:footerReference[^>]*/>", "", section)
     section = re.sub(r"<w:pgMar [^>]*/>", '<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" '
                                            'w:header="0" w:footer="0" w:gutter="0"/>', section)

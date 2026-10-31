@@ -113,6 +113,15 @@ def test_verite_validee_exige_une_vraie_validation(tmp_path, monkeypatch):
     assert dossier.verite_validee()
 
 
+def test_onglet_profil_rempli_depuis_les_reponses(monkeypatch):
+    import outils.initialiser_sheet as i
+    reponses = dict(i.profil_candidat())
+    assert reponses["Téléphone"] == "+33 6 00 00 00 00" and reponses["Permis de conduire"] == "Non"
+    assert reponses["Niveau d'anglais"] == "B2" and "Convention de stage" in reponses
+    monkeypatch.setattr(i, "contrat", lambda: "cdi")
+    assert "Convention de stage" not in dict(i.profil_candidat())
+
+
 def test_recherches_linkedin_depuis_le_profil(monkeypatch):
     import agents.lecteur as lecteur
     monkeypatch.setattr(lecteur, "candidat", lambda: {"metiers": ["Comptable"], "zone": {"libelle": "Lyon", "geoId": "123"}})

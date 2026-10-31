@@ -96,7 +96,7 @@ Si `PROJETS_EN_COURS=1`, ajoute la règle « Projets créés pour une offre » �
 ## 5. Fiche de vérité
 
 Mets `profil/verite.md` au propre à partir du brouillon, en suivant `profil.exemple/verite.exemple.md`. Chaque fait une seule fois,
-chiffres exacts, rien d'ajouté ; ce qui est douteux est marqué `[À CONFIRMER]`. Supprime la section « Chiffres relevés » une fois ses lignes vérifiées.
+chiffres exacts, rien d'ajouté ; ce qui est douteux est marqué `[À CONFIRMER]`. Tout fait de `phrase_ouverture` et de `presentation` doit y figurer aussi, sinon le vérificateur rejette la lettre. Supprime la section « Chiffres relevés » une fois ses lignes vérifiées.
 
 Affiche la fiche en entier. « Tout ce que le pipeline dira de toi vient de cette fiche, et seulement d'elle. Corrige ce qui est faux, ajoute ce qui
 manque : un chiffre, une mission, une compétence. Rien ne sera envoyé sans ton accord sur cette fiche. » Applique ses corrections, ligne à ligne,
@@ -155,7 +155,9 @@ En 4 lignes :
 
 ## Si l'autorisation Google a expiré
 
-`python -m outils.etat_installation` affiche `google: false` alors que tout le reste existe, ou le lancement cite « Autorisation Google expirée ».
-Restaure si besoin (`python -m outils.coffre restaurer`, qui échoue si le jeton de COFFRE_CLE est expiré : passe alors directement à la suite). Refais l'étape 2.
-Si `secrets/` a été effacé, l'ancien coffre reste chiffré sur le Drive : `python -m outils.coffre cle` ne peut garder la même clé que si COFFRE_CLE est présente dans l'environnement, ce qui est le cas après l'étape 9.
-Récupère le coffre avec le nouveau jeton (`rm -f secrets/.restaure` puis restauration), lance `python -m outils.coffre cle`, `python -m outils.sauvegarde sauvegarder`, puis fais remplacer `COFFRE_CLE` dans les réglages (étape 9, ligne 1).
+Le lancement cite « Autorisation Google expirée », ou `google` est à `false` alors que la clé `COFFRE_CLE` est réglée. Rien n'est perdu :
+
+1. Refais l'étape 2.
+2. `python -m outils.coffre restaurer` : récupère tout, en gardant la nouvelle autorisation.
+3. `python -m outils.coffre cle > /dev/null`, puis `python -m outils.sauvegarde sauvegarder`.
+4. Affiche la valeur renvoyée par `python -m outils.coffre cle`, et fais-la remplacer dans **Environment variables** (étape 9, point 1).

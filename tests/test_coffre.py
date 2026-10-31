@@ -167,6 +167,22 @@ def test_compte_cree_en_session_1_retrouve_en_session_2(machine, monkeypatch):
     assert postuleur.identifiants("portail.exemple.fr")["mot_de_passe"] == cree
 
 
+def test_nouvelle_autorisation_survit_a_la_restauration(machine, monkeypatch):
+    """Jeton expiré : nouvelle autorisation sur une machine neuve, puis restauration avec l'ancienne COFFRE_CLE."""
+    sauvegarde.sauvegarder()
+    cle_fernet, _ = coffre.lire_cle()
+    cle = coffre._brut()
+    effacer(machine.racine)
+    monkeypatch.setenv("COFFRE_CLE", cle)
+    (machine.racine / "secrets").mkdir()
+    (machine.racine / "secrets" / "token_google.json").write_text(json.dumps({"refresh_token": "nouveau"}))
+    sauvegarde.restaurer()
+    assert json.loads((machine.racine / "secrets" / "token_google.json").read_text())["refresh_token"] == "nouveau"
+    assert (machine.racine / "secrets" / "comptes.json").exists()
+    coffre.creer_cle()
+    assert coffre.lire_cle() == (cle_fernet, "nouveau")   # même coffre, nouveau jeton
+
+
 def test_jeton_expire_dit_quoi_faire():
     from google.auth.exceptions import RefreshError
     assert "autoriser à nouveau Google" in coffre.message_erreur(RefreshError("invalid_grant"))

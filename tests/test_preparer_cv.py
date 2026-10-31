@@ -70,6 +70,29 @@ def test_brouillon_classe_sans_valider_ni_inventer():
     assert "ACME - Stagiaire Data Analyst, 2025" not in texte.split("## Chiffres relevés")[1]   # une année n'est pas un chiffre à vérifier
 
 
+def test_brouillon_ne_perd_aucune_ligne():
+    cv = ["Sam MARTIN", "PROJETS", "Prévision des ventes", "Projet personnel", "Analyse de l'air", "Projet personnel",
+          "EXPÉRIENCES", "ACME", "Expérience client", "COMPÉTENCES", "Python"]
+    texte = p.brouillon_verite(cv)
+    assert texte.count("- Projet personnel") == 2 and "- Expérience client" in texte
+    for ligne in ("Prévision des ventes", "Analyse de l'air", "ACME", "Python"):
+        assert f"- {ligne}" in texte
+
+
+def test_lettre_avec_un_modele_sans_section_de_page(tmp_path, monkeypatch):
+    if not shutil.which("soffice"):
+        pytest.skip("LibreOffice absent")
+    import json
+
+    import outils.documents as d
+    monkeypatch.setattr(d, "CV_MODELES", {"Principal": fabriquer_docx(tmp_path / "m.docx", CV_SAM)})
+    monkeypatch.setattr(d, "COORDONNEES", tmp_path / "c.json")
+    (tmp_path / "c.json").write_text(json.dumps({"nom": "Sam", "adresse": ["a"], "ville_redaction": "Paris", "telephone": "t", "email": "e"}))
+    (tmp_path / "lettre.json").write_text(json.dumps({"destinataire": ["ACME"], "objet": "o", "appel": "a", "politesse": "p",
+                                                      "paragraphes": ["un", "deux", "trois"]}))
+    assert d.produire_lettre(tmp_path, "ACME", "Principal").startswith("OK")
+
+
 def test_brouillon_n_ouvre_pas_le_garde_fou(tmp_path, monkeypatch):
     import agents.dossier as dossier
     monkeypatch.setattr(dossier, "VERITE", tmp_path / "v.md")
