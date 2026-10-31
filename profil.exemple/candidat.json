@@ -1,0 +1,48 @@
+{
+  "prenom": "Sam",
+  "nom": "MARTIN",
+  "email": "sam.martin@example.com",
+  "presentation": "étudiant en dernière année de master, spécialité analyse de données",
+  "phrase_ouverture": "Étudiant en dernière année de master à l'Université Exemple",
+  "contrat": "stage",
+  "type_recherche": "stage de fin d'études",
+  "zone": {
+    "libelle": "Paris et Île-de-France",
+    "geoId": "104246759"
+  },
+  "date_debut": "février 2027",
+  "annee": "2027",
+  "disponibilite": "6 mois à partir de février 2027",
+  "disponibilite_en": "6 months from February 2027",
+  "metiers": [
+    "Data Analyst",
+    "Data Scientist"
+  ],
+  "secteurs": [
+    "santé",
+    "énergie"
+  ],
+  "langues": [
+    "français",
+    "anglais"
+  ],
+  "abonnement": "pro",
+  "nom_sheet": "Candidatures 2027 - Sam",
+  "dossier_drive": "Candidatures 2027",
+  "modeles_cv": {
+    "Principal": "principal"
+  },
+  "entreprises_cibles": [],
+  "comptes_proteges": [
+    "linkedin",
+    "jobteaser"
+  ],
+  "jobteaser": "",
+  "reponses_formulaires": {
+    "Téléphone": "+33 6 00 00 00 00",
+    "Adresse": "1 rue de l'Exemple, 75000 Paris",
+    "Handicap / diversité": "Je préfère ne pas répondre",
+    "Permis de conduire": "Non",
+    "Niveau d'anglais": "B2"
+  }
+}

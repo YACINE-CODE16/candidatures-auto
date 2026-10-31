@@ -1,0 +1,10 @@
+{
+  "nom": "Sam MARTIN",
+  "adresse": [
+    "1 rue de l'Exemple",
+    "75000 Paris"
+  ],
+  "ville_redaction": "Paris",
+  "telephone": "+33 6 00 00 00 00",
+  "email": "sam.martin@example.com"
+}

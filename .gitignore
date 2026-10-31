@@ -1,0 +1,39 @@
+# Secrets
+.env
+*.token
+token*.json
+credentials*.json
+service_account*.json
+secrets/
+
+# Données personnelles (le dépôt peut être montré en entretien)
+profil/
+
+# Données personnelles générées
+dossiers/*
+projets/idees.md
+!dossiers/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Profil de navigateur persistant (sessions connectées)
+navigateur/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+navigateur/
+secrets/
+
+# Fichiers laissés par le navigateur à la racine (captures, instantanés de page)
+/*.png
+/*.yml
+/snap_*.md
+/page-*.md
+
+# Coffre et archive locale, fichiers système
+*.bin
+.DS_Store
+graphify-out/
