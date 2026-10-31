@@ -31,7 +31,8 @@ echo "$suivis" | grep -v '^verifier_avant_push.sh$' | xargs grep -nIE '[A-Za-z0-
   | grep -vE 'example\.(com|fr)|users\.noreply\.github\.com|jobalerts-noreply@linkedin\.com|jobs-noreply@linkedin\.com' && ko "adresse e-mail"
 
 if [ -n "${MOTS_INTERDITS:-}" ]; then
-  echo "$suivis" | xargs grep -nIiE "$MOTS_INTERDITS" 2>/dev/null | cut -d: -f1,2 && ko "mot interdit dans un fichier (ligne ci-dessus)"
+  trouves=$(echo "$suivis" | xargs grep -nIiE "$MOTS_INTERDITS" 2>/dev/null | cut -d: -f1,2)
+  [ -z "$trouves" ] || { echo "$trouves"; ko "mot interdit dans un fichier (ligne ci-dessus)"; }
   git log --all --format='%an %ae %s%n%b' | grep -iE "$MOTS_INTERDITS" >/dev/null && ko "mot interdit dans l'historique git (auteur ou message)"
   git log --all -p | grep -qiE "$MOTS_INTERDITS" && ko "mot interdit dans un ancien commit"
 else
