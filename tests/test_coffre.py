@@ -1,8 +1,10 @@
 """Coffre et sauvegarde, avec un faux Drive : aller-retour, mauvaise clé, aucun secret en clair."""
 
 import json
+import os
 import re
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 from cryptography.fernet import Fernet
@@ -11,6 +13,13 @@ import outils.coffre as coffre
 import outils.sauvegarde as sauvegarde
 
 SECRET = "mot-de-passe-tres-secret-42"
+
+
+@pytest.fixture(autouse=True)
+def environnement_isole():
+    """Un compte créé s'ajoute à os.environ (MDP_<SITE>) : ne pas contaminer les tests suivants."""
+    with mock.patch.dict(os.environ):
+        yield
 
 
 class FauxDrive:
@@ -143,6 +152,19 @@ def test_machine_neuve_retrouve_tout_et_message_exact(machine, capsys, monkeypat
     assert "accès Google et comptes (2 fichiers)" in sortie and "profil (1 fichier)" in sortie
     assert "projets" not in sortie   # rien à restaurer pour les projets : le message ne l'annonce pas
     assert (machine.racine / "secrets" / "comptes.json").stat().st_mode & 0o077 == 0
+
+
+def test_compte_cree_en_session_1_retrouve_en_session_2(machine, monkeypatch):
+    import agents.postuleur as postuleur
+    monkeypatch.setattr(postuleur, "COMPTES", machine.racine / "secrets" / "comptes.json")
+    monkeypatch.setattr(postuleur, "RACINE", machine.racine)
+    cree = postuleur.identifiants("portail.exemple.fr")["mot_de_passe"]   # sauvegarde le coffre aussitôt
+    cle = coffre._brut()
+    effacer(machine.racine)                                                # session 2 : machine neuve
+    monkeypatch.setenv("COFFRE_CLE", cle)
+    monkeypatch.delenv("MDP_PORTAIL_EXEMPLE_FR", raising=False)
+    coffre.restaurer_coffre()
+    assert postuleur.identifiants("portail.exemple.fr")["mot_de_passe"] == cree
 
 
 def test_jeton_expire_dit_quoi_faire():
