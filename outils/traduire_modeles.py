@@ -8,6 +8,7 @@ une fois pour toutes : communes ici, propres au candidat dans profil/traductions
     python -m outils.traduire_modeles
 """
 
+import html
 import json
 import re
 import subprocess
@@ -55,6 +56,16 @@ TRADUCTIONS_COMMUNES = {
 TRADUCTIONS_CANDIDAT = RACINE / "profil" / "traductions_cv.json"
 
 
+def blocs(docx: Path) -> str:
+    """Liste des blocs de texte, telle que l'attend cv_edit.py : un paragraphe par ligne, ses runs séparés par « ⟂ »."""
+    # shortcut: un paragraphe contenant une zone de texte donne un bloc mêlé ; à séparer si des CV en utilisent beaucoup.
+    with zipfile.ZipFile(docx) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+    lignes = ["⟂".join(html.unescape(t) for t in re.findall(r"<w:t(?: [^>]*)?>([^<]*)</w:t>", p))
+              for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S)]
+    return "".join(l + "\n" for l in lignes if l.strip())
+
+
 def traductions() -> dict:
     c = candidat()
     toutes = {**TRADUCTIONS_COMMUNES, c.get("disponibilite", "\0"): c.get("disponibilite_en", c.get("disponibilite", "\0"))}
@@ -95,6 +106,7 @@ if __name__ == "__main__":
     for nom in candidat()["modeles_cv"].values():
         cible = MODELES / f"{nom}_EN.docx"
         traduire(MODELES / f"{nom}.docx", cible)
+        cible.with_name(f"{nom}_EN.blocs.txt").write_text(blocs(cible), encoding="utf-8")
         pages, texte = verifier(cible)
         print(f"{cible.name} : {pages} page(s)")
         if pages != 1:
