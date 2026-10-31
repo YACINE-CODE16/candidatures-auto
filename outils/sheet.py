@@ -1,4 +1,4 @@
-"""Accès au Google Sheet « Pipeline Candidatures 2027 », la mémoire partagée du pipeline.
+"""Accès au Google Sheet du candidat, la mémoire partagée du pipeline.
 
 Chaque agent lit les lignes qui ont un certain statut, fait son travail, puis écrit
 le statut suivant. Tout ce qui ne demande pas de jugement est ici, en Python :
@@ -366,13 +366,21 @@ class PipelineSheet:
         return validees
 
 
-def ouvrir_pipeline() -> PipelineSheet:
-    """Connexion au vrai Sheet avec le compte de service (variables lues dans .env)."""
+def ouvrir_classeur():
+    """Le Sheet de l'utilisateur, avec son autorisation Google ; son ID est retenu par outils.initialiser_sheet."""
     import gspread
 
-    client = gspread.service_account(filename=os.environ["GOOGLE_SERVICE_ACCOUNT_FILE"])
-    classeur = client.open_by_key(os.environ["SHEET_ID"])
-    return PipelineSheet(classeur.worksheet(os.getenv("SHEET_ONGLET", "Offres")))
+    from outils.drive import memoire
+    from outils.google_auth import identifiants
+
+    id_sheet = os.getenv("SHEET_ID") or memoire().get("sheet_id")
+    if not id_sheet:
+        raise RuntimeError("Sheet inconnu : lancer « python -m outils.initialiser_sheet ».")
+    return gspread.authorize(identifiants()).open_by_key(id_sheet)
+
+
+def ouvrir_pipeline() -> PipelineSheet:
+    return PipelineSheet(ouvrir_classeur().worksheet(os.getenv("SHEET_ONGLET", "Offres")))
 
 
 # --------------------------------------------------------------------------

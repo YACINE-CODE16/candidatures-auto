@@ -1,7 +1,7 @@
 """Crée la version anglaise des modèles de CV (<modèle>_EN.docx), pour les offres en anglais.
 
 Même principe que cv_edit.py : on ne touche qu'au texte de word/document.xml, la mise en forme
-(Garamond, filets, tabulations, liens) reste celle du modèle. Les traductions ci-dessous sont faites
+(polices, filets, tabulations, liens) reste celle du modèle. Les traductions ci-dessous sont faites
 une fois pour toutes : communes ici, propres au candidat dans profil/traductions_cv.json
 (à faire rédiger par Claude à partir de ses CV), sans rien ajouter ni retirer.
 
@@ -57,7 +57,7 @@ TRADUCTIONS_CANDIDAT = RACINE / "profil" / "traductions_cv.json"
 
 def traductions() -> dict:
     c = candidat()
-    toutes = {**TRADUCTIONS_COMMUNES, c["disponibilite"]: c["disponibilite_en"]}
+    toutes = {**TRADUCTIONS_COMMUNES, c.get("disponibilite", "\0"): c.get("disponibilite_en", c.get("disponibilite", "\0"))}
     if TRADUCTIONS_CANDIDAT.exists():
         toutes.update(json.loads(TRADUCTIONS_CANDIDAT.read_text(encoding="utf-8")))
     return toutes

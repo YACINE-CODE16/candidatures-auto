@@ -10,6 +10,7 @@
 
 from dotenv import load_dotenv
 
+from outils.config import candidat
 from outils.lancement import RACINE
 from outils.sheet import ouvrir_pipeline
 
@@ -46,9 +47,9 @@ def reparer() -> None:
         ]]),
         ("B10:D19", [[s, f"=COUNTIF(Offres!$J$2:$J;B{10 + i})", f"=IFERROR(C{10 + i}/$B$5;0)"]
                      for i, s in enumerate(STATUTS)]),
-        ("G10:H12", [[f'=COUNTIF(Offres!$H$2:$H;"*"&F{r}&"*")',
+        (f"G10:H{9 + min(3, len(candidat()['modeles_cv']))}", [[f'=COUNTIF(Offres!$H$2:$H;"*"&F{r}&"*")',
                       f"=SUMPRODUCT(ISNUMBER(SEARCH(F{r};Offres!$H$2:$H))"
-                      f"*ISNUMBER(MATCH(Offres!$J$2:$J;{ENVOYEES};0)))"] for r in (10, 11, 12)]),
+                      f"*ISNUMBER(MATCH(Offres!$J$2:$J;{ENVOYEES};0)))"] for r in range(10, 10 + min(3, len(candidat()["modeles_cv"])))]),
         ("B22", [['=IFERROR(QUERY(Offres!A2:M;"select A, B, J, D where M = \'Haute\' and J <> \'Refus\' '
                   'and J <> \'Écartée\' label A \'Entreprise\', B \'Intitulé\', J \'Statut\', D \'Début\'";0);'
                   '"Aucune offre en priorité haute")']]),

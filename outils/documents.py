@@ -4,7 +4,7 @@ CV : on ne régénère jamais le CV (voir profil/GUIDE_AGENT_CV.md). Le rédacte
 liste d'opérations (edits.json) ; outils/cv_edit.py les applique au .docx de référence,
 le convertit en PDF avec LibreOffice et refuse tout CV de plus d'une page.
 
-Lettre : même police (Garamond, embarquée dans le .docx du CV) et mise en page d'une
+Lettre : même police que le .docx du CV et mise en page d'une
 lettre française classique : expéditeur en haut à gauche, destinataire en haut à droite,
 lieu et date, objet, appel, 3 paragraphes, formule de politesse, nom en bas à droite.
 
@@ -53,6 +53,11 @@ def nom_fichier(entreprise: str, document: str) -> str:
                       .encode("ascii", "ignore").decode()).strip("_")
     c = candidat()
     return f"{document}_{propre(c['prenom'])}_{propre(c['nom'].capitalize())}_{propre(entreprise) or 'Entreprise'}.pdf"
+
+
+def _xml(docx: Path) -> str:
+    with zipfile.ZipFile(docx) as z:
+        return z.read("word/document.xml").decode("utf-8")
 
 
 def _texte_pdf(pdf: Path) -> str:
@@ -106,9 +111,8 @@ def produire_cv(dossier: Path, entreprise: str) -> str:
 
     texte = _texte_pdf(docx.with_suffix(".pdf"))
     mention = MENTION_PROJET[langue]
-    if texte.count(mention) != 2:
-        return ("ERREUR : le CV doit garder exactement 2 projets, chacun avec son titre et sa mention "
-                f"« {mention} » (ou « {mention} – {'In progress' if langue == 'en' else 'En cours'} »). "
+    if _xml(docx).count(mention) != _xml(modele_cv(categorie, langue)).count(mention):   # 0 si le CV n'a pas cette mention
+        return (f"ERREUR : le CV doit garder autant de projets que le modèle, chacun avec son titre et sa mention « {mention} ». "
                 "Ne supprime aucun titre.")
     pdf = dossier / nom_fichier(entreprise, "CV")
     shutil.move(str(docx.with_suffix(".pdf")), pdf)
@@ -122,12 +126,12 @@ def produire_cv(dossier: Path, entreprise: str) -> str:
 # Lettre
 # --------------------------------------------------------------------------
 
-def _paragraphe(texte: str = "", gras: bool = False, retrait_cm: float = 0, justifie: bool = False,
-                apres: int = 0) -> str:
-    """Un paragraphe Word en Garamond 11,5 pt."""
+def _paragraphe(texte: str = "", police: str = "Garamond", gras: bool = False, retrait_cm: float = 0,
+                justifie: bool = False, apres: int = 0) -> str:
+    """Un paragraphe Word en 11,5 pt, dans la police du CV."""
     retrait = f'<w:ind w:left="{int(retrait_cm * 567)}"/>' if retrait_cm else ""
     alignement = '<w:jc w:val="both"/>' if justifie else ""
-    rpr = ('<w:rPr><w:rFonts w:ascii="Garamond" w:hAnsi="Garamond" w:cs="Garamond"/>'
+    rpr = (f'<w:rPr><w:rFonts w:ascii="{police}" w:hAnsi="{police}" w:cs="{police}"/>'
            + ("<w:b/>" if gras else "") + '<w:sz w:val="23"/><w:szCs w:val="23"/></w:rPr>')
     run = f'<w:r>{rpr}<w:t xml:space="preserve">{escape(texte)}</w:t></w:r>' if texte else ""
     return (f'<w:p><w:pPr>{retrait}{alignement}<w:spacing w:before="0" w:after="{apres}" '
@@ -153,21 +157,26 @@ def produire_lettre(dossier: Path, entreprise: str, categorie: str) -> str:
     else:
         date_texte = f"{moi['ville_redaction']}, le {aujourd_hui.day} {MOIS[aujourd_hui.month - 1]} {aujourd_hui.year}"
 
-    corps = [_paragraphe(moi["nom"], gras=True)]
-    corps += [_paragraphe(ligne) for ligne in [*moi["adresse"], moi["telephone"], moi["email"]]]
-    corps.append(_paragraphe())
-    corps += [_paragraphe(ligne, gras=(i == 0), retrait_cm=10) for i, ligne in enumerate(lettre["destinataire"])]
-    corps += [_paragraphe(), _paragraphe(date_texte, retrait_cm=10), _paragraphe(), _paragraphe()]
-    corps += [_paragraphe(f"{'Subject:' if anglais else 'Objet :'} {lettre['objet']}", gras=True, apres=240)]
-    corps += [_paragraphe(lettre["appel"], apres=160)]
-    corps += [_paragraphe(p, justifie=True, apres=160) for p in lettre["paragraphes"]]
-    corps += [_paragraphe(lettre["politesse"], justifie=True, apres=480)]
-    corps += [_paragraphe(moi["nom"], retrait_cm=10)]
-
-    # On part du .docx du CV : il embarque Garamond et ses styles, la lettre a donc le même style.
-    with zipfile.ZipFile(CV_MODELES.get(categorie, CV_MODELES["Data Scientist"])) as z:
+    # On part du .docx du CV : ses polices et ses styles, la lettre a donc le même style.
+    with zipfile.ZipFile(CV_MODELES.get(categorie, next(iter(CV_MODELES.values())))) as z:
         fichiers = {n: z.read(n) for n in z.namelist()}
     xml = fichiers["word/document.xml"].decode("utf-8")
+    police = m[1] if (m := re.search(r'w:rFonts w:ascii="([^"]+)"', xml)) else "Garamond"
+
+    def para(texte: str = "", **options) -> str:
+        return _paragraphe(texte, police, **options)
+
+    corps = [para(moi["nom"], gras=True)]
+    corps += [para(ligne) for ligne in [*moi["adresse"], moi["telephone"], moi["email"]]]
+    corps.append(para())
+    corps += [para(ligne, gras=(i == 0), retrait_cm=10) for i, ligne in enumerate(lettre["destinataire"])]
+    corps += [para(), para(date_texte, retrait_cm=10), para(), para()]
+    corps += [para(f"{'Subject:' if anglais else 'Objet :'} {lettre['objet']}", gras=True, apres=240)]
+    corps += [para(lettre["appel"], apres=160)]
+    corps += [para(p, justifie=True, apres=160) for p in lettre["paragraphes"]]
+    corps += [para(lettre["politesse"], justifie=True, apres=480)]
+    corps += [para(moi["nom"], retrait_cm=10)]
+
     section = re.search(r"<w:sectPr.*?</w:sectPr>", xml, re.S).group(0)
     section = re.sub(r"<w:footerReference[^>]*/>", "", section)
     section = re.sub(r"<w:pgMar [^>]*/>", '<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" '

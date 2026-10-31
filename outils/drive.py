@@ -1,6 +1,6 @@
 """Dépôt des CV et lettres générés sur le Drive du candidat, pour la traçabilité.
 
-Chaque dossier validé est copié dans « CV générés 2027 / <ID> – <Entreprise> – <Intitulé> / »,
+Chaque dossier validé est copié dans « <dossier_drive de candidat.json> / <ID> – <Entreprise> – <Intitulé> / »,
 et les liens vers le CV et la lettre sont écrits dans le Sheet, sur la ligne de l'offre.
 L'accès utilise le jeton OAuth du candidat limité à drive.file : le pipeline ne voit que
 les fichiers qu'il a lui-même créés.
@@ -12,13 +12,23 @@ from pathlib import Path
 
 from google.auth.transport.requests import AuthorizedSession
 
+from outils.config import candidat
 from outils.google_auth import identifiants
 from outils.lancement import RACINE
 
 API = "https://www.googleapis.com/drive/v3/files"
 API_ENVOI = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink"
-DOSSIER_RACINE = "CV générés 2027"
-MEMOIRE = RACINE / "secrets" / "drive.json"  # ID du dossier racine, pour ne pas le recréer
+MEMOIRE = RACINE / "secrets" / "drive.json"  # ID du dossier racine et du Sheet, pour ne pas les recréer
+
+
+def memoire() -> dict:
+    return json.loads(MEMOIRE.read_text()) if MEMOIRE.exists() else {}
+
+
+def retenir(**valeurs) -> None:
+    MEMOIRE.parent.mkdir(exist_ok=True)
+    MEMOIRE.write_text(json.dumps(memoire() | valeurs))
+    MEMOIRE.chmod(0o600)
 
 
 def _session() -> AuthorizedSession:
@@ -40,13 +50,12 @@ def _creer_dossier(session: AuthorizedSession, nom: str, parent: str | None = No
 
 
 def _dossier_racine(session: AuthorizedSession) -> str:
-    if MEMOIRE.exists():
-        id_dossier = json.loads(MEMOIRE.read_text())["dossier_racine"]
+    if id_dossier := memoire().get("dossier_racine"):
         r = session.get(f"{API}/{id_dossier}", params={"fields": "trashed"})
         if r.ok and not r.json().get("trashed"):
             return id_dossier
-    id_dossier = _creer_dossier(session, DOSSIER_RACINE)
-    MEMOIRE.write_text(json.dumps({"dossier_racine": id_dossier}))
+    id_dossier = _creer_dossier(session, candidat()["dossier_drive"])
+    retenir(dossier_racine=id_dossier)
     return id_dossier
 
 

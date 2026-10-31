@@ -28,7 +28,9 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
+from outils.config import sources_connectees
 from outils.lancement import RACINE
+from outils.plafonds import autorises, compter, plafond
 from outils.sheet import priorite
 
 DOSSIERS = RACINE / "dossiers"
@@ -44,8 +46,11 @@ def ma_part(offres: list[dict]) -> list[dict]:
 FAIT_AUJOURDHUI = RACINE / "logs" / "chasseur_du_jour.json"
 
 
-def _une_fois_par_jour(tache: str) -> bool:
-    """Vrai la première fois de la journée (puis noté) : ces recherches ne valent pas d'être refaites à chaque cycle."""
+def _une_fois_par_jour(tache: str, args) -> bool:
+    """Vrai la première fois de la journée (puis noté) : ces recherches ne valent pas d'être refaites à chaque cycle.
+    Un test à blanc ne compte pas : la vraie journée doit encore chercher."""
+    if args.dry_run:
+        return True
     faites = json.loads(FAIT_AUJOURDHUI.read_text()) if FAIT_AUJOURDHUI.exists() else {}
     if faites.get(tache) == date.today().isoformat():
         return False
@@ -62,17 +67,20 @@ async def etape_chasseur(sheet, args, journal):
     from agents.chasseur import chercher, completer, nouveau_bilan
 
     bilan = journal.setdefault("chasseur", nouveau_bilan())
-    if args.max_completer and _une_fois_par_jour("completer"):
+    if plafond("CHASSEUR_PAR_JOUR") and not _une_fois_par_jour("chasseur", args):
+        print("Chasseur déjà passé aujourd'hui (plafond de l'abonnement).")
+        return
+    if args.max_completer and _une_fois_par_jour("completer", args):
         await completer(sheet, args.max_completer, bilan)
-    if args.max_nouvelles and _une_fois_par_jour("chercher"):
+    if args.max_nouvelles and _une_fois_par_jour("chercher", args):
         await chercher(sheet, args.max_nouvelles, bilan)
-    if args.max_alertes and _une_fois_par_jour("alertes"):   # alertes LinkedIn du Gmail → site de l'entreprise
+    if args.max_alertes and _une_fois_par_jour("alertes", args):   # alertes LinkedIn du Gmail → site de l'entreprise
         from agents.chasseur import pistes
         await pistes(sheet, args.max_alertes, bilan)
-    if args.max_posts and _une_fois_par_jour("posts"):   # posts LinkedIn listant des offres (via la recherche)
+    if args.max_posts and _une_fois_par_jour("posts", args):   # posts LinkedIn listant des offres (via la recherche)
         from agents.chasseur import posts
         await posts(sheet, args.max_posts, bilan)
-    if args.max_cibles:   # moisson des sites carrière des entreprises ciblées 
+    if args.max_cibles:   # moisson des sites carrière des entreprises ciblées
         from agents.chasseur import cibler
         await cibler(sheet, args.max_cibles, bilan)
 
@@ -81,7 +89,7 @@ async def etape_lecteur(sheet, args, journal):
     from agents.lecteur import fouiller, lire, nouveau_bilan
 
     bilan = journal.setdefault("lecteur", nouveau_bilan())
-    if args.max_lecteur and _une_fois_par_jour("fouille"):   # listes LinkedIn et JobTeaser, une fois par jour
+    if sources_connectees() and args.max_lecteur and _une_fois_par_jour("fouille", args):   # listes LinkedIn et JobTeaser
         await fouiller(sheet, bilan)
     await lire(sheet, args.max_lecteur, bilan)
 
@@ -101,11 +109,12 @@ async def etape_dossier(sheet, args, journal):
     pretes = [o for o in toutes if o["statut"] == "Qualifiée" and (DOSSIERS / o["id"] / "offre.md").exists()]
     pretes = sorted((o for o in ma_part(pretes) if envoyable(o)), key=priorite)   # ≤ 48 h d'abord, puis score
     resultats = journal.setdefault("dossiers", [])
-    for offre in pretes[: args.max_dossiers]:
+    for offre in pretes[: autorises("dossiers", args.max_dossiers)]:
         try:
             statut = await preparer_dossier(offre, sheet)
         except Exception as erreur:   # un dossier en échec n'arrête pas les suivants
             statut = f"Erreur technique ({erreur.__class__.__name__})"
+        compter("dossiers")
         resultats.append((offre["id"], offre["entreprise"], offre["intitule"], statut))
 
 
@@ -113,8 +122,10 @@ async def etape_postuleur(sheet, args, journal):
     from agents.postuleur import postuler
 
     resultats = journal.setdefault("envois", [])
-    for offre in sorted(ma_part(sheet.lire_validees()), key=priorite)[: args.max_envois]:   # ≤ 48 h d'abord
+    for offre in sorted(ma_part(sheet.lire_validees()), key=priorite)[: autorises("envois", args.max_envois)]:   # ≤ 48 h d'abord
         issue = await postuler(sheet, offre, args.dry_run)
+        if issue == "Envoyée":
+            compter("envois")
         resultats.append((offre["id"], offre["entreprise"], offre["intitule"], issue, ""))
 
 
@@ -197,9 +208,10 @@ async def main() -> None:
     parser.add_argument("--max-envois", type=int, default=15, help="candidatures à envoyer")
     parser.add_argument("--max-lecteur", type=int, default=15, help="offres de plateformes à lire")
     parser.add_argument("--jours-suivi", type=int, default=3, help="ancienneté des mails lus par le suivi")
-    parser.add_argument("--cycles", type=int, default=1,
-                        help="répète chasseur → lecteur → dossier → postuleur (s'arrête s'il n'y a plus rien à faire)")
+    parser.add_argument("--cycles", type=int, default=None,
+                        help="(défaut : selon l'abonnement) répète chasseur → lecteur → dossier → postuleur (s'arrête s'il n'y a plus rien à faire)")
     args = parser.parse_args()
+    args.cycles = args.cycles or plafond("CYCLES")
 
     sheet, journal = ouvrir_pipeline(), {"erreurs": []}
     from outils.lancement import AVANT_AGENT

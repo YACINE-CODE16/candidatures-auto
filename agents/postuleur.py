@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 
 from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, create_sdk_mcp_server, tool
 
-from outils.config import candidat, email, nom_complet, prenom
+from outils.config import candidat, email, en_cloud, nom_complet, prenom, sources_connectees
 from outils.gmail import chercher
 from outils.lancement import RACINE, lancer_agent
 
@@ -52,7 +52,7 @@ SITES_PROTEGES = tuple(candidat().get("comptes_proteges", ["linkedin", "jobtease
 # Welcome to the Jungle, HelloWork, Indeed) servent seulement à trouver les offres.
 PLATEFORMES = ("jobteaser.com", "linkedin.com", "welcometothejungle.com", "hellowork.com", "indeed.")
 # Mode assisté (sur le PC du candidat) : navigateur visible, l'agent appelle à l'aide au lieu de bloquer.
-NAVIGATEUR_VISIBLE = os.getenv("NAVIGATEUR_VISIBLE") == "1"
+NAVIGATEUR_VISIBLE = os.getenv("NAVIGATEUR_VISIBLE") == "1" and not en_cloud()
 AIDE_HUMAINE = """
 MODE ASSISTÉ : {prenom} regarde ce navigateur, sur son écran. Devant un CAPTCHA, une vérification « je ne suis
 pas un robot », un code reçu par SMS ou une connexion que tu ne peux pas faire : n'appelle PAS marquer_bloquee.
@@ -67,6 +67,18 @@ BUDGET_PAR_OFFRE_USD = 3.00   # à 2 $, des formulaires longs (Accenture, Thales
 # Réponses de l'onglet « Profil candidat » remplacées par les règles actuelles du pipeline.
 CHAMPS_OBSOLETES = {"Envoi final", "Mots de passe", "GitHub / portfolio"}
 
+# LinkedIn et JobTeaser connectés : désactivés par défaut (SOURCES_CONNECTEES=0), aucun mot de passe LinkedIn stocké.
+RECETTE_LINKEDIN = f"""- LinkedIn (identifiants_site("linkedin.com")) : connexion avec le compte de {PRENOM}, jamais de création
+  ni de « mot de passe oublié ». Code par mail : lire_mails ; vérification par téléphone : bloque.
+  Candidature simplifiée : réponds aux questions avec profil_candidat, joins le CV PDF de l'offre.
+""" if sources_connectees() else ""
+RECETTE_JOBTEASER = f"""- JobTeaser ({candidat().get("jobteaser", "<école>.jobteaser.com")}, identifiants_site("jobteaser.com")) : bouton « Candidature
+  simplifiée » → combobox Genre (réponse de profil_candidat) → message (≤ 1000 caractères, tiré de la lettre) ou lettre PDF
+  → « Postuler maintenant ». Succès = texte « bien été envoyée ». Dans le HTML de l'offre,
+  hasApplied:true = déjà postulé (ne pas renvoyer : marque « Envoyée » avec cette preuve). Le site limite
+  à environ 1 requête par seconde : évite les actions en rafale.
+""" if sources_connectees() else ""
+
 SYSTEME = f"""Tu es le postuleur : tu envoies la candidature de {nom_complet()} ({EMAIL}) à UNE offre,
 dans un vrai navigateur (outils mcp__navigateur__*). Tu agis en son nom, avec son accord.
 
@@ -78,9 +90,7 @@ Procédure :
    Postule sur le site de l'entreprise uniquement : jamais par JobTeaser, LinkedIn, Welcome to the
    Jungle, HelloWork ni Indeed (ces sites servent seulement à trouver les offres).
    Offre en anglais : joins les PDF en anglais (fichiers_pdf), réponds en anglais.
-3. JobTeaser (compte école de {PRENOM}) : n'y crée jamais de compte et ne réinitialise jamais son mot de
-   passe ; si identifiants_site ne renvoie pas « source: .env » pour JobTeaser, bloque l'offre avec le
-   motif « Mot de passe JobTeaser à fournir ».
+3. LinkedIn et JobTeaser : n'y crée jamais de compte et n'y réinitialise jamais un mot de passe.
    Si un compte est nécessaire : appelle identifiants_site(site) pour obtenir l'email et le mot de
    passe à utiliser (connexion d'abord, création seulement si aucun compte n'existe). « site » est le
    domaine de la page de connexion ; pour un portail partagé entre entreprises (Workday,
@@ -133,19 +143,11 @@ Règles complémentaires :
   postulé », espace candidat « Mes candidatures », message « vous avez déjà postulé »). Si oui, ne renvoie
   rien : appelle marquer_envoyee(id, preuve) avec ce que tu as vu, sans pret_a_envoyer.
 - Cookies : « Tout refuser » (ou le minimum obligatoire).
-- LinkedIn (identifiants_site("linkedin.com")) : connexion avec le compte de {PRENOM}, jamais de création
-  ni de « mot de passe oublié ». Code par mail : lire_mails ; vérification par téléphone : bloque.
-  Candidature simplifiée : réponds aux questions avec profil_candidat, joins le CV PDF de l'offre.
-- Ne passe en « Envoyée » qu'après avoir VU la page ou le message de confirmation.
+{RECETTE_LINKEDIN}- Ne passe en « Envoyée » qu'après avoir VU la page ou le message de confirmation.
 - Une donnée personnelle absente de profil_candidat (date ou pays de naissance, situation familiale,
   prétentions salariales chiffrées, vidéo) n'est jamais inventée : bloque avec le motif.
 Recettes qui fonctionnent, par portail :
-- JobTeaser ({candidat().get("jobteaser", "<école>.jobteaser.com")}, identifiants_site("jobteaser.com")) : bouton « Candidature
-  simplifiée » → combobox Genre (réponse de profil_candidat) → message (≤ 1000 caractères, tiré de la lettre) ou lettre PDF
-  → « Postuler maintenant ». Succès = texte « bien été envoyée ». Dans le HTML de l'offre,
-  hasApplied:true = déjà postulé (ne pas renvoyer : marque « Envoyée » avec cette preuve). Le site limite
-  à environ 1 requête par seconde : évite les actions en rafale.
-- LVMH, Dior, Guerlain, Moët, 24S : https://www.lvmh.com/fr/nous-rejoindre/nos-offres/<REF>/candidature,
+{RECETTE_JOBTEASER}- LVMH, Dior, Guerlain, Moët, 24S : https://www.lvmh.com/fr/nous-rejoindre/nos-offres/<REF>/candidature,
   formulaire dans une iframe « apply.html » ; CV dans « CV joint », lettre dans « Lettre de motivation » ;
   cocher seulement la notice obligatoire ; cliquer ENVOYER (vrai clic). Succès = « VOTRE CANDIDATURE A BIEN
   ÉTÉ PRISE EN COMPTE ».
@@ -177,20 +179,28 @@ def variable_env(site: str) -> str:
     return "MDP_" + "".join(c if c.isalnum() else "_" for c in site.upper())
 
 
+def identifiants_fournis(site: str) -> dict | None:
+    """Identifiants déjà connus pour ce site dans .env (MDP_<SITE>, avec EMAIL_<SITE> facultatif), sans rien créer.
+    Une variable MDP_<MOT> s'applique si <MOT> est un des mots du site (MDP_THALESGROUP → careers.thalesgroup.com) ;
+    la plus précise l'emporte. Seule voie permise pour les comptes protégés (LinkedIn, JobTeaser)."""
+    mots = f"_{variable_env(site)[4:]}_"
+    candidates = [n for n, v in os.environ.items() if n.startswith("MDP_") and v and f"_{n[4:]}_" in mots]
+    if not candidates:
+        return None
+    cle = max(candidates, key=len)
+    return {"site": site, "email": os.getenv(cle.replace("MDP_", "EMAIL_", 1), EMAIL),
+            "mot_de_passe": os.environ[cle], "source": ".env"}
+
+
 def identifiants(site: str, mot_de_passe_connu: str | None = None) -> dict:
     """Identifiants du compte candidat sur un site, dans cet ordre :
-      1. le mot de passe donné par le candidat dans .env (MDP_<SITE>, avec EMAIL_<SITE> facultatif) ;
+      1. le mot de passe donné dans .env ;
       2. celui déjà enregistré dans secrets/comptes.json ;
       3. sinon un mot de passe créé UNE seule fois pour ce site, puis toujours réutilisé.
     `mot_de_passe_connu` remplace le mot de passe enregistré (compte existant retrouvé par mail)."""
-    # Une variable MDP_<MOT> s'applique si <MOT> est un des mots du site
-    # (MDP_THALESGROUP → careers.thalesgroup.com) ; la plus précise l'emporte.
-    mots = f"_{variable_env(site)[4:]}_"
-    candidates = [n for n, v in os.environ.items() if n.startswith("MDP_") and v and f"_{n[4:]}_" in mots]
-    if candidates and not mot_de_passe_connu:
-        cle = max(candidates, key=len)
-        return {"site": site, "email": os.getenv(cle.replace("MDP_", "EMAIL_", 1), EMAIL),
-                "mot_de_passe": os.environ[cle], "source": ".env"}
+    if not mot_de_passe_connu and (fourni := identifiants_fournis(site)):
+        return fourni
+    COMPTES.parent.mkdir(exist_ok=True)
     with open(COMPTES.with_suffix(".verrou"), "w") as verrou:   # postuleurs parallèles : un seul mot de passe par site
         fcntl.flock(verrou, fcntl.LOCK_EX)
         return _identifiants_enregistres(site, mot_de_passe_connu)
@@ -360,8 +370,8 @@ def serveur_postuleur(sheet, offre: dict, garde: Garde):
     async def identifiants_site(args):
         site = args["site"].lower().removeprefix("www.")
         if any(p in site for p in SITES_PROTEGES):
-            compte = identifiants(site)
-            if compte.get("source") != ".env":
+            compte = identifiants_fournis(site)   # jamais de création pour ces sites
+            if compte is None:
                 return texte("Compte personnel du candidat sans identifiants fournis : ne crée rien, bloque l'offre.")
             return texte(json.dumps(compte, ensure_ascii=False))
         return texte(json.dumps(identifiants(site), ensure_ascii=False))

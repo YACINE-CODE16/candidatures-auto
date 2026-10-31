@@ -1,14 +1,15 @@
-"""Prépare un Google Sheet VIDE pour un nouveau candidat : onglets « Offres », « Profil candidat »
-et « Tableau de bord », avec les colonnes, les listes déroulantes et les formules du pipeline.
+"""Crée le Google Sheet de l'utilisateur dans son Drive (rien à partager), puis ses onglets « Offres »,
+« Profil candidat » et « Tableau de bord », avec les colonnes, les listes déroulantes et les formules.
+Sans danger si on le relance : le Sheet existant est repris, seul ce qui manque est créé.
 
-Prérequis : le Sheet est partagé en « Éditeur » avec le compte de service, et SHEET_ID est dans .env.
+Prérequis : l'autorisation Google (outils.google_auth) et profil/candidat.json.
 
     python -m outils.initialiser_sheet
 """
 
 from dotenv import load_dotenv
 
-from outils.config import candidat, email, nom_complet
+from outils.config import candidat, contrat, email, libelle_contrat, nom_complet
 from outils.lancement import RACINE
 from outils.sheet import CHAMPS
 
@@ -28,47 +29,64 @@ A_COMPLETER = "<à compléter>"
 def profil_candidat() -> list[list[str]]:
     """Réponses types aux formulaires : pré-remplies depuis profil/candidat.json, le reste à compléter."""
     c = candidat()
+    r = c.get("reponses_formulaires", {})
     return [
         ["Champ", "Réponse à utiliser dans les formulaires"],
         ["Prénom / Nom", f"{c['prenom']} / {c['nom']}"],
         ["Email", email()],
-        ["Téléphone", A_COMPLETER],
-        ["Adresse", A_COMPLETER],
+        ["Téléphone", r.get("Téléphone", A_COMPLETER)],
+        ["Adresse", r.get("Adresse", A_COMPLETER)],
         ["LinkedIn", A_COMPLETER],
         ["École / diplôme préparé", A_COMPLETER],
-        ["Convention de stage", A_COMPLETER],
-        ["Type de stage", c["type_recherche"]],
-        ["Date de début", A_COMPLETER],
-        ["Durée", c["disponibilite"]],
+        *([["Convention de stage", r.get("Convention de stage", A_COMPLETER)]] if contrat() == "stage" else []),
+        ["Type de contrat", libelle_contrat()],
+        ["Date de début", c.get("date_debut", A_COMPLETER)],
+        ["Durée", c.get("disponibilite", A_COMPLETER)],
         ["Gratification souhaitée", "Selon la grille de l'entreprise"],
         ["Prétentions salariales", "Selon la grille de l'entreprise. Si un montant chiffré est obligatoire : " + A_COMPLETER],
         ["Autorisation de travail en France", A_COMPLETER],
-        ["Langues", A_COMPLETER],
+        ["Langues", ", ".join(c.get("langues", [])) or A_COMPLETER],
+        ["Niveau d'anglais", r.get("Niveau d'anglais", A_COMPLETER)],
+        ["Permis de conduire", r.get("Permis de conduire", A_COMPLETER)],
         ["Date de naissance", A_COMPLETER],
         ["Pays de naissance", A_COMPLETER],
         ["Situation familiale", A_COMPLETER],
         ["Genre", A_COMPLETER],
         ["Civilité", A_COMPLETER],
-        ["Handicap / diversité", "Je préfère ne pas répondre"],
+        ["Handicap / diversité", r.get("Handicap / diversité", "Je préfère ne pas répondre")],
         ["Mobilité géographique (autre région)", A_COMPLETER],
         ["Cases obligatoires CGU / RGPD / notice d'information", "Toujours cocher (cases marketing/newsletter : ne pas cocher)"],
         ["Consentement outil d'IA de tri des candidatures", "J'accepte"],
         ["Comment avez-vous connu l'offre ?", "Site carrière / site de recrutement de l'entreprise (option la plus proche)"],
-        ["Disponibilité", A_COMPLETER],
+        ["Disponibilité", c.get("disponibilite", A_COMPLETER)],
         ["Lettre / message de motivation", "Toujours en joindre une quand un champ existe ; ne rien forcer sinon"],
         ["Vidéo de présentation", "Non disponible : bloquer l'offre"],
     ]
 
 
-def initialiser(classeur=None) -> None:
-    """`classeur` : un gspread.Spreadsheet (tests) ; par défaut, le Sheet de SHEET_ID via le compte de service."""
-    import os
-
+def creer_ou_ouvrir():
+    """Le Sheet déjà créé pour cette installation, sinon un nouveau dans le dossier du pipeline."""
     import gspread
+    from google.auth.transport.requests import AuthorizedSession
 
-    if classeur is None:
-        client = gspread.service_account(filename=os.environ["GOOGLE_SERVICE_ACCOUNT_FILE"])
-        classeur = client.open_by_key(os.environ["SHEET_ID"])
+    from outils.drive import _dossier_racine, memoire, retenir
+    from outils.google_auth import identifiants
+    from outils.sheet import ouvrir_classeur
+
+    if memoire().get("sheet_id"):
+        return ouvrir_classeur()
+    creds = identifiants()
+    classeur = gspread.authorize(creds).create(candidat()["nom_sheet"],
+                                               folder_id=_dossier_racine(AuthorizedSession(creds)))
+    classeur.update_locale("fr_FR")   # les formules du pipeline s'écrivent avec « ; »
+    classeur.update_timezone("Europe/Paris")
+    retenir(sheet_id=classeur.id)
+    return classeur
+
+
+def initialiser(classeur=None) -> None:
+    """`classeur` : un gspread.Spreadsheet (tests) ; par défaut, celui de creer_ou_ouvrir."""
+    classeur = classeur or creer_ou_ouvrir()
     onglets = {f.title: f for f in classeur.worksheets()}
 
     # 1. Offres : le premier onglet (vide) est renommé, les en-têtes posés.
@@ -102,6 +120,7 @@ def initialiser(classeur=None) -> None:
     from outils.reparer_tableau_de_bord import reparer
     migrer(appliquer=True)
     reparer()
+    print(f"Ton Sheet : {classeur.url}")
 
 
 if __name__ == "__main__":

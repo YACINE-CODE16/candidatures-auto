@@ -1,8 +1,8 @@
-"""Agent Lecteur : lit dans le navigateur connecté les offres hébergées par JobTeaser, LinkedIn et
-Welcome to the Jungle, que le chasseur (simple lecteur HTTP) ne peut pas lire.
+"""Agent Lecteur : lit dans le navigateur les offres hébergées par des plateformes (Welcome to the Jungle ;
+LinkedIn et JobTeaser seulement si SOURCES_CONNECTEES=1), que le chasseur (simple lecteur HTTP) ne peut pas lire.
 
 Pour chaque offre « Qualifiée » sans texte (ou bloquée par le chasseur faute de page officielle) :
-  1. ouvre l'offre dans le navigateur, connecté aux comptes du candidat (JobTeaser école, LinkedIn) ;
+  1. ouvre l'offre dans le navigateur ;
   2. copie le texte de l'offre (outil enregistrer_offre, qui écrit dossiers/<ID>/offre.md) ;
   3. trouve le lien pour postuler sur le site de l'entreprise (règle du candidat : les plateformes
      servent seulement à trouver les offres) ;
@@ -23,25 +23,26 @@ from dotenv import load_dotenv
 from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server, tool
 
 from agents.chasseur import CRITERES, SEUIL
-from outils.config import CONTRATS, contrat, hors_contrat, mots_cles, zone
-from agents.postuleur import CAPTURES, NAVIGATEUR_VISIBLE, PLAYWRIGHT_MCP, PROFIL_NAVIGATEUR, identifiants
+from outils.config import CONTRATS, contrat, hors_contrat, mots_cles, sources_connectees, zone
+from agents.postuleur import CAPTURES, NAVIGATEUR_VISIBLE, PLAYWRIGHT_MCP, PROFIL_NAVIGATEUR, identifiants_fournis
 from outils.config import candidat, nom_complet, prenom
 from outils.sheet import age_offre, priorite
 from outils.lancement import RACINE, lancer_agent
 
 DOSSIERS = RACINE / "dossiers"
 PLATEFORMES = ("jobteaser.com", "linkedin.com", "welcometothejungle.com")
+CONNECTEES = ("jobteaser.com", "linkedin.com")   # exigent le compte du candidat : SOURCES_CONNECTEES=1
 BUDGET_PAR_OFFRE_USD = 0.80
 AGE_MAX_JOURS = 4   # au-delà, l'offre est trop ancienne pour valoir une lecture (et le nettoyage la supprime)
 
-SYSTEME = f"""Tu lis des offres pour {nom_complet()} dans un vrai navigateur (outils mcp__navigateur__*),
-connecté à ses comptes. Tu ne postules PAS : tu lis et tu notes.
+SYSTEME = f"""Tu lis des offres pour {nom_complet()} dans un vrai navigateur (outils mcp__navigateur__*).
+Tu ne postules PAS : tu lis et tu notes.
 
 {CRITERES}
 
 Pour l'offre donnée :
-1. Ouvre son URL. Si une connexion est demandée (JobTeaser : compte école ; LinkedIn), appelle
-   identifiants_site(<domaine>) et connecte-toi. Ne crée jamais de compte et ne réinitialise jamais
+1. Ouvre son URL. Si une connexion est demandée, appelle identifiants_site(<domaine>) et connecte-toi
+   s'il renvoie des identifiants ; sinon, passe par le site de l'entreprise (voir ci-dessous). Ne crée jamais de compte et ne réinitialise jamais
    un mot de passe ici. Si une vérification par code mail apparaît, utilise lire_mails. Si une
    vérification par téléphone ou un CAPTCHA apparaît : bloquer_offre avec le motif. Refuse les cookies.
    SI LA PLATEFORME BLOQUE (JobTeaser, Welcome to the Jungle : test « Just a moment », Cloudflare, 403,
@@ -78,8 +79,8 @@ def serveur_lecteur(sheet, offre: dict, bilan: dict):
     @tool("identifiants_site", "Identifiants du candidat sur un site (JobTeaser, LinkedIn…), sans création.",
           {"site": str})
     async def identifiants_site(args):
-        compte = identifiants(args["site"].lower().removeprefix("www."))
-        if compte.get("source") != ".env":
+        compte = identifiants_fournis(args["site"].lower().removeprefix("www."))
+        if compte is None:
             return texte("Aucun identifiant fourni par le candidat pour ce site : ne t'y connecte pas.")
         return texte(f'{{"email": "{compte["email"]}", "mot_de_passe": "{compte["mot_de_passe"]}"}}')
 
@@ -141,6 +142,7 @@ def offres_a_lire(sheet) -> list[dict]:
         return any(d in urlsplit(o["url"]).netloc for d in PLATEFORMES)
     return [o for o in sheet._charger()
             if (plateforme(o) or o["source"].startswith("Fouille")) and not (DOSSIERS / o["id"] / "offre.md").exists()
+            and (sources_connectees() or not any(d in urlsplit(o["url"]).netloc for d in CONNECTEES))
             and ((age := age_offre(o)) is None or age <= AGE_MAX_JOURS)
             and (o["statut"] == "Qualifiée"
                  or (o["statut"] == "Bloquée" and o["motif_blocage"].startswith("Chasseur")
@@ -173,7 +175,7 @@ async def lire(sheet, limite: int, bilan: dict) -> None:
             print(f"→ {offre['id']} : erreur du lecteur ({erreur.__class__.__name__})")
 
 
-FOUILLE = """Tu fouilles une plateforme d'offres pour {nom}, dans un vrai navigateur connecté à ses comptes.
+FOUILLE = """Tu fouilles une plateforme d'offres pour {nom}, dans un vrai navigateur.
 {criteres}
 
 Pour chaque URL de recherche donnée : ouvre-la (connexion si demandée : identifiants_site(<domaine>), code par
@@ -214,8 +216,8 @@ def serveur_fouille(sheet, bilan: dict, source: str):
     @tool("identifiants_site", "Identifiants du candidat sur un site (JobTeaser, LinkedIn…), sans création.",
           {"site": str})
     async def identifiants_site(args):
-        compte = identifiants(args["site"].lower().removeprefix("www."))
-        if compte.get("source") != ".env":
+        compte = identifiants_fournis(args["site"].lower().removeprefix("www."))
+        if compte is None:
             return texte("Aucun identifiant fourni par le candidat pour ce site : ne t'y connecte pas.")
         return texte(f'{{"email": "{compte["email"]}", "mot_de_passe": "{compte["mot_de_passe"]}"}}')
 

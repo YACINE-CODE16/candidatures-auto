@@ -70,7 +70,7 @@ Termine par un bilan d'une ligne par mail retenu."""
 
 def _mails_recents(jours: int) -> list[dict]:
     requete = (f"newer_than:{jours}d -from:me -category:promotions "
-               "(candidature OR application OR stage OR internship OR entretien OR interview OR recrutement "
+               "(candidature OR application OR stage OR internship OR alternance OR entretien OR interview OR recrutement "
                "OR test OR assessment OR évaluation OR HackerRank OR Codility OR CodinGame OR HireVue)")
     deja = set(json.loads(TRAITES.read_text())) if TRAITES.exists() else set()
     return [m for m in chercher(requete, MAILS_MAX) if m["id"] not in deja]

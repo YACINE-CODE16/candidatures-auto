@@ -245,8 +245,8 @@ async def cibler(sheet, nombre: int, bilan: dict) -> None:
                 bilan["nouvelles"] += pistes.get("pistes", 0)
                 bilan["qualifiees"] += pistes.get("pistes", 0)
                 vues = pistes.get("pistes", 0) > 0
-            # « sans stage » : offres vues mais aucune retenue. Site toujours illisible : délai normal.
-            marquer_ciblee(entreprise, sans_stage=vues and bilan["qualifiees"] == avant[0])
+            # « sans offre » : offres vues mais aucune retenue. Site toujours illisible : délai normal.
+            marquer_ciblee(entreprise, sans_offre=vues and bilan["qualifiees"] == avant[0])
         except Exception as erreur:   # une entreprise en échec n'arrête pas les suivantes
             print(f"→ {entreprise} : erreur du chasseur ({erreur.__class__.__name__})")
 

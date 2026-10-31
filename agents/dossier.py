@@ -1,10 +1,10 @@
 """Agent Dossier : pour chaque offre « Qualifiée », un CV adapté et une lettre, sans rien inventer.
 
 Organisation :
-  - l'agent principal (sonnet) fait travailler deux sous-agents, sans rien écrire lui-même ;
-  - le Rédacteur (sonnet) choisit le modèle de CV, écrit edits.json (modifications du .docx)
+  - l'agent principal fait travailler deux sous-agents, sans rien écrire lui-même ;
+  - le Rédacteur (modèle selon l'abonnement, outils/plafonds.py) choisit le modèle de CV, écrit edits.json (modifications du .docx)
     et lettre.json, puis appelle les outils produire_cv / produire_lettre qui fabriquent les PDF ;
-  - le Vérificateur (opus, Read seulement) compare chaque phrase des PDF produits à
+  - le Vérificateur (Read seulement) compare chaque phrase des PDF produits à
     profil/verite.md et répond « VERDICT: OK » ou « VERDICT: REJET » avec les phrases fautives ;
   - l'agent principal relance le Rédacteur avec ces phrases, 3 rédactions au maximum.
 
@@ -42,10 +42,11 @@ from claude_agent_sdk import (
     tool,
 )
 
-from outils.config import candidat, nom_complet, prenom
+from outils.config import CONTRATS, candidat, contrat, nom_complet, prenom, projets_en_cours
 from outils.documents import CV_MODELES, nom_fichier, produire_cv, produire_lettre
 from outils.drive import deposer_dossier
 from outils.lancement import RACINE, lancer_agent
+from outils.plafonds import plafond
 
 DOSSIERS = RACINE / "dossiers"
 VERITE = RACINE / "profil" / "verite.md"
@@ -56,8 +57,38 @@ MAX_REDACTIONS = 3
 BUDGET_PAR_OFFRE_USD = 3.00
 OUTILS_DOCUMENTS = ["mcp__documents__produire_cv", "mcp__documents__produire_lettre"]
 NOM, PRENOM, C = nom_complet(), prenom(), candidat()
+TYPE = C.get("type_recherche") or CONTRATS[contrat()]["fr"]
+LIGNE_CIBLE_EN = {"stage": "Internship", "alternance": "Apprenticeship", "cdi": "Permanent position"}[contrat()]
 
-PROMPT_REDACTEUR = f"""Tu prépares le CV et la lettre de motivation de {NOM} pour UNE offre de stage.
+# Projets « En cours » : désactivés par défaut, le candidat choisit à l'installation (PROJETS_EN_COURS=1).
+PROJET_CREE = """   c. Tu peux aussi CRÉER un projet conçu pour l'offre (règle « Projets créés pour une offre » de
+      verite.md), si aucun projet de la banque n'est vraiment proche : remplace le titre, la ligne de
+      technos et les 2 puces d'un projet du modèle, et remplace son « Projet personnel » par
+      « Projet personnel – En cours » (en anglais « Personal project – In progress »). Puces : objectif et
+      démarche, aucun résultat obtenu.
+      CHIFFRÉ : chaque puce porte un chiffre de périmètre ou d'objectif choisi pour le projet
+      (« 3 modèles comparés », « objectif : F1 ≥ 0,85 ») ; jamais une
+      statistique que tu ne peux pas vérifier, jamais un chiffre présenté comme atteint.
+      RÉALISTE : un projet faisable seul en 1 à 2 semaines sur un ordinateur portable,
+      avec des données publiques connues et des méthodes classiques du métier.
+      Interdit : plateforme complète, mise en production, mots grandiloquents (« révolutionner », « de bout en
+      bout », « à grande échelle »). Stack : uniquement des compétences de verite.md.
+      Pour chaque projet créé, écris aussi projets_crees.json dans le dossier :
+      [{"titre": "...", "objectif": "...", "dataset": "<jeu de données public, avec son lien>",
+         "stack": "...", "etapes": ["...", "..."], "resultat_a_mesurer": "...",
+         "duree_estimee": "<ex. 8 jours>"}]
+      Ne parle jamais d'un projet créé dans la lettre.
+""" if projets_en_cours() else """   c. Ne crée JAMAIS de projet : seuls les projets de la banque de verite.md sont permis.
+"""
+VERIF_PROJET = """  - un projet absent de la banque de verite.md n'est accepté que s'il respecte TOUTES les conditions
+    « Projets créés pour une offre » : mention « En cours », aucun résultat présenté comme atteint
+    (les chiffres de périmètre ou d'objectif sont attendus), projet réaliste (1 à 2 semaines,
+    sans plateforme complète ni mise en production ni mot grandiloquent), stack dans les compétences,
+    fiche présente dans projets_crees.json, absent de la lettre ;
+""" if projets_en_cours() else """  - un projet absent de la banque de verite.md est toujours REJETÉ ;
+"""
+
+PROMPT_REDACTEUR = f"""Tu prépares le CV et la lettre de motivation de {NOM} pour UNE offre ({TYPE}).
 
 À lire d'abord : l'offre (offre.md), la source de vérité ({VERITE}), le guide CV ({GUIDE_CV}).
 
@@ -68,14 +99,14 @@ un élément marqué [À CONFIRMER]. Une compétence demandée par l'offre mais 
 laissée de côté, sans la mentionner (ni pour l'affirmer, ni pour dire qu'elle manque).
 
 CV — on ne régénère jamais le CV : on modifie le texte du modèle .docx (voir le guide).
-1. Choisis le modèle le plus proche de l'offre (Finance Quant, Data Scientist, Recherche IA) et lis
+1. Choisis le modèle le plus proche de l'offre ({", ".join(CV_MODELES)}) et lis
    la liste de ses blocs de texte :
 {chr(10).join(f"   - {cat} : {chemin}" for cat, chemin in BLOCS.items())}
    Un « old » ou un « after » doit être recopié exactement depuis UN SEUL bloc (séparés par « ⟂ »).
    OFFRE EN ANGLAIS : utilise le modèle anglais de la même catégorie, avec ses blocs :
 {chr(10).join(f"   - {cat} : {chemin}" for cat, chemin in BLOCS_EN.items())}
    et mets "langue": "en" dans edits.json ET dans lettre.json ; CV, lettre et ligne cible
-   (« Final-year internship: <short title> ») en anglais ; projet créé : « Personal project – In progress ».
+   (« {LIGNE_CIBLE_EN}: <short title> ») en anglais.
    Sinon "langue": "fr".
 2. Écris edits.json dans le dossier : {{"categorie": "...", "langue": "fr", "operations": [ ... ]}} avec les opérations
    « replace », « add_bullet », « remove_para » décrites dans le guide, et une quatrième :
@@ -83,36 +114,18 @@ CV — on ne régénère jamais le CV : on modifie le texte du modèle .docx (vo
    pour un texte présent plusieurs fois (ex. « Projet personnel » : vise le paragraphe par le titre du
    projet ; les opérations s'appliquent dans l'ordre, donc utilise le titre tel qu'il est à ce moment-là).
    Ne supprime jamais le titre d'un projet ou d'une expérience pour contourner un blocage.
-3. Respecte le guide : ligne cible « Stage de fin d'études <intitulé court de 3 à 6 mots> » (le reste de
-   la ligne inchangé) ; mêmes nombres de puces par expérience, reformulées avec les mots-clés de l'offre ;
+3. Respecte le guide : s'il y a une ligne cible sous les coordonnées, « {TYPE.capitalize()} <intitulé court de 3 à 6
+   mots> » (le reste de la ligne inchangé) ; mêmes nombres de puces par expérience, reformulées avec les mots-clés de l'offre ;
    puces de 1 à 2 lignes ; pas de tiret « — » ; ne touche jamais au nom, aux coordonnées, aux sections,
    à l'Éducation, aux dates, aux intitulés de poste, aux langues, certifications, engagement et centres
    d'intérêt.
-   PROJETS, à adapter à CHAQUE offre (ne jamais laisser ceux du modèle tels quels) :
+   PROJETS, si le modèle a une section Projets, à adapter à CHAQUE offre (ne jamais laisser ceux du modèle tels quels) :
    a. Classe tous les projets de la section « Projets » de verite.md selon leur proximité avec l'offre
-      et garde les 2 meilleurs. Si un projet retenu n'est pas dans le modèle, remplace le titre, la ligne
+      et garde les meilleurs, autant que le modèle en contient. Si un projet retenu n'est pas dans le modèle, remplace le titre, la ligne
       de technos et les 2 puces du projet sortant par les siens (un « replace » par bloc).
-   b. Réécris les 2 puces de chaque projet retenu pour mettre en avant l'angle qui sert l'offre
-      (vocabulaire de l'offre : évaluation de modèles, métriques, qualité des données, risque…),
-      sans rien ajouter qui ne soit dans verite.md. Le titre peut aussi être reformulé.
-   c. Tu peux aussi CRÉER un projet conçu pour l'offre (règle « Projets créés pour une offre » de
-      verite.md), si aucun projet de la banque n'est vraiment proche : remplace le titre, la ligne de
-      technos et les 2 puces d'un projet du modèle, et remplace son « Projet personnel » par
-      « Projet personnel – En cours ». Puces : objectif et démarche, aucun résultat obtenu.
-      CHIFFRÉ : chaque puce porte un chiffre de périmètre ou d'objectif choisi pour le projet
-      (« 3 modèles comparés », « 5 ans de données journalières », « objectif : F1 ≥ 0,85 ») ; jamais une
-      statistique du dataset que tu ne peux pas vérifier, jamais un chiffre présenté comme atteint.
-      RÉALISTE : un projet d'étudiant de M2, faisable seul en 1 à 2 semaines sur un ordinateur portable,
-      dataset public connu, méthodes classiques (régression, arbres/boosting, clustering, CNN simple,
-      RAG avec un petit LLM…). Interdit : plateforme complète, mise en production, gros modèle entraîné
-      from scratch, mots grandiloquents (« révolutionner », « de bout en bout », « à grande échelle »).
-      Stack : uniquement des compétences de verite.md.
-      Pour chaque projet créé, écris aussi projets_crees.json dans le dossier :
-      [{{"titre": "...", "objectif": "...", "dataset": "<jeu de données public, avec son lien>",
-         "stack": "...", "etapes": ["...", "..."], "resultat_a_mesurer": "...",
-         "duree_estimee": "<ex. 8 jours>"}}]
-      Ne parle jamais d'un projet créé dans la lettre.
-   d. Dans ta réponse finale, indique les 2 projets retenus (ou créés) et pourquoi.
+   b. Réécris les puces de chaque projet retenu pour mettre en avant l'angle qui sert l'offre
+      (vocabulaire de l'offre), sans rien ajouter qui ne soit dans verite.md. Le titre peut aussi être reformulé.
+{PROJET_CREE}   d. Dans ta réponse finale, indique les projets retenus et pourquoi.
 4. Appelle l'outil produire_cv. S'il renvoie une ERREUR (texte introuvable, plus d'une page…),
    corrige edits.json et rappelle-le jusqu'à obtenir OK.
 
@@ -120,27 +133,27 @@ LETTRE — une page, dans la langue de l'offre. Son but : décrocher un entretie
 personnelle, précise et enthousiaste, propre à CETTE entreprise : aucune phrase qui pourrait servir
 telle quelle pour une autre offre, aucune formule creuse ou générique, aucune formule négative.
 5. Prépare d'abord, pour toi, un brouillon d'idées :
-   - ce que l'entreprise fait et vise (mission, produits, équipe, projet du stage), tiré de offre.md ;
-   - ses besoins précis pour ce stage (missions, compétences demandées) ;
+   - ce que l'entreprise fait et vise (mission, produits, équipe, projet du poste), tiré de offre.md ;
+   - ses besoins précis pour ce poste (missions, compétences demandées) ;
    - pour chaque besoin, l'élément de verite.md qui y répond le mieux (expérience, chiffre, cours, projet) ;
    - ce que {PRENOM} pourra concrètement apporter au projet décrit.
 6. Rédige 4 paragraphes (250 à 350 mots au total), selon la règle « vous, moi, nous » :
    § 1 VOUS (l'entreprise). Commence normalement, sans anecdote ni effet de style : une phrase qui
        présente {PRENOM} et sa candidature, sur ce modèle : « {C['phrase_ouverture']}, je vous adresse
-       ma candidature pour le {C['type_recherche']} « <intitulé> », d'une durée de {C['disponibilite']}. »
+       ma candidature pour le poste « <intitulé> » ({TYPE}, {C['disponibilite']}). »
        Puis parle de l'entreprise :
-       ce qu'elle fait, l'équipe et le projet du stage décrits dans offre.md (cite-les précisément),
+       ce qu'elle fait, l'équipe et le projet du poste décrits dans offre.md (cite-les précisément),
        et ce qui attire {PRENOM} dans cette mission.
    § 2 MOI. Sa formation et 2 ou 3 réalisations précises (expériences, projets, cours de verite.md),
        chacune explicitement reliée à une mission ou une compétence demandée
        par l'offre, avec les vrais chiffres.
-   § 3 NOUS. Ce que {PRENOM} et l'équipe feront ensemble : la valeur ajoutée concrète qu'il apportera
-       au projet décrit, et ce que ce stage lui permettra de développer à leurs côtés.
+   § 3 NOUS. Ce que {PRENOM} et l'équipe feront ensemble : la valeur ajoutée concrète pour
+       le projet décrit, et ce que ce poste lui permettra de développer à leurs côtés.
    § 4 Conclusion : enthousiasme réaffirmé, proposition d'un entretien pour en discuter.
    Écris lettre.json dans le dossier :
    {{"destinataire": ["<Entreprise>", "<service ou équipe cité dans l'offre, sinon Service Recrutement>",
                      "<ville de l'offre>"],
-     "objet": "Candidature au stage de fin d'études <intitulé> (réf. <référence si l'offre en donne une>)",
+     "objet": "Candidature au poste <intitulé>, {TYPE} (réf. <référence si l'offre en donne une>)",
      "appel": "Madame, Monsieur," (en anglais : "Dear Hiring Manager,"),
      "langue": "fr" ou "en",
      "paragraphes": ["§ 1", "§ 2", "§ 3", "§ 4"],
@@ -163,12 +176,7 @@ indiqué (c'est le texte extrait des PDF). Contrôle CHAQUE phrase et CHAQUE puc
     certification, engagement, centre d'intérêt) doit être présent dans verite.md ;
   - les chiffres doivent être identiques (pas d'arrondi vers le haut, pas de « plus de » ajouté) ;
   - aucun élément marqué [À CONFIRMER] dans verite.md ne doit être utilisé ;
-  - un projet absent de la banque de verite.md n'est accepté que s'il respecte TOUTES les conditions
-    « Projets créés pour une offre » : mention « En cours », aucun résultat présenté comme atteint
-    (les chiffres de périmètre ou d'objectif sont attendus), projet réaliste pour un étudiant (1 à 2 semaines,
-    sans plateforme complète ni mise en production ni mot grandiloquent), stack dans les compétences,
-    fiche présente dans projets_crees.json, absent de la lettre ;
-  - aucun fait sur l'entreprise qui ne vienne pas de offre.md (ni adresse ni nom de recruteur inventés) ;
+{VERIF_PROJET}  - aucun fait sur l'entreprise qui ne vienne pas de offre.md (ni adresse ni nom de recruteur inventés) ;
   - aucune phrase qui affirme ou souligne une lacune de {PRENOM} ;
   - une reformulation est acceptée si elle ne change pas le sens et n'ajoute rien ;
   - l'expression d'un intérêt, d'une motivation ou d'une intention (« ce projet m'attire »,
@@ -212,7 +220,7 @@ def serveur_documents(dossier: Path, entreprise: str):
     @tool("produire_lettre", "Met en page lettre.json (même police que le CV) et produit le PDF (1 page).", {})
     async def outil_lettre(_args):
         categorie_txt = dossier / "categorie.txt"
-        categorie = categorie_txt.read_text().strip() if categorie_txt.exists() else "Data Scientist"
+        categorie = categorie_txt.read_text().strip() if categorie_txt.exists() else next(iter(CV_MODELES))
         return reponse(await asyncio.to_thread(produire_lettre, dossier, entreprise, categorie))
 
     return create_sdk_mcp_server(name="documents", tools=[outil_cv, outil_lettre])
@@ -274,7 +282,7 @@ class Suivi:
 def options_dossier(dossier: Path, entreprise: str) -> ClaudeAgentOptions:
     relatif = dossier.relative_to(RACINE).as_posix()
     return ClaudeAgentOptions(
-        model="sonnet",
+        model=plafond("MODELE_REDACTEUR"),   # le chef ne fait que coordonner
         system_prompt=SYSTEME_DOSSIER,
         tools=["Agent", "Read", "Write"],    # Read/Write servent aux sous-agents (voir leurs définitions)
         mcp_servers={"documents": serveur_documents(dossier, entreprise)},
@@ -296,14 +304,14 @@ def options_dossier(dossier: Path, entreprise: str) -> ClaudeAgentOptions:
                 description="Produit le CV (modifications du .docx) et la lettre d'une offre, à partir de verite.md.",
                 prompt=PROMPT_REDACTEUR,
                 tools=["Read", "Write", *OUTILS_DOCUMENTS],
-                model="sonnet",
+                model=plafond("MODELE_REDACTEUR"),
                 background=False,
             ),
             "verificateur": AgentDefinition(
                 description="Vérifie chaque phrase du CV et de la lettre produits contre verite.md. Lecture seule.",
                 prompt=PROMPT_VERIFICATEUR,
                 tools=["Read"],
-                model="sonnet",  # Sonnet : économise le quota de l'abonnement
+                model=plafond("MODELE_VERIFICATEUR"),
                 background=False,
             ),
         },
@@ -337,8 +345,8 @@ def noter_projets_crees(offre: dict, dossier: Path) -> None:
 
 
 def verite_validee() -> bool:
-    """verite.md n'est utilisable qu'une fois sa ligne de statut remplacée par « Validé par <prénom> le ... »."""
-    return f"Validé par {PRENOM} le" in VERITE.read_text(encoding="utf-8")
+    """verite.md n'est utilisable qu'une fois sa ligne de statut remplacée par « Validé par <prénom> le JJ/MM/AAAA »."""
+    return bool(re.search(rf"Validé par {re.escape(PRENOM)} le \d{{2}}/\d{{2}}/\d{{4}}", VERITE.read_text(encoding="utf-8")))
 
 
 async def preparer_dossier(offre: dict, sheet, test: bool = False) -> str:

@@ -83,12 +83,12 @@ def test_consignes_generees_depuis_le_contrat(monkeypatch):
     assert "UNIQUEMENT DES CDI" in config.consigne_contrat() and "zone : Lyon" in config.criteres()
 
 
-def test_site_sans_stage_pas_revisite_avant_deux_semaines(tmp_path, monkeypatch):
+def test_site_sans_offre_pas_revisite_avant_deux_semaines(tmp_path, monkeypatch):
     import json
     from datetime import date, timedelta
     import outils.cibles as cibles
     monkeypatch.setattr(cibles, "DEJA_CIBLEES", tmp_path / "faites.json")
     monkeypatch.setattr(cibles, "candidat", lambda: {"entreprises_cibles": ["Alpha", "Beta"]})
     il_y_a_5_jours = (date.today() - timedelta(days=5)).isoformat()
-    (tmp_path / "faites.json").write_text(json.dumps({"Alpha": il_y_a_5_jours + " sans stage", "Beta": il_y_a_5_jours}))
+    (tmp_path / "faites.json").write_text(json.dumps({"Alpha": il_y_a_5_jours + " sans offre", "Beta": il_y_a_5_jours}))
     assert cibles.prochaines(5) == ["Beta"]

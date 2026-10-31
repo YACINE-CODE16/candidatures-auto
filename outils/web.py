@@ -18,7 +18,7 @@ import requests
 
 def _agent() -> str:
     from outils.config import email
-    return f"PipelineCandidatures/1.0 (recherche de stage personnelle ; {email()})"
+    return f"PipelineCandidatures/1.0 (recherche d'emploi personnelle ; {email()})"
 
 
 AGENT = _agent()
